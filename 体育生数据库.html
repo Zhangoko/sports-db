@@ -149,6 +149,14 @@
     /* 表单 */
     .formGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(135px,1fr));gap:11px}
     .field label{display:block;font-size:11px;color:var(--t3);margin-bottom:5px;font-weight:600}
+    .wellDef{display:block;font-size:10px;color:var(--t3);line-height:1.45;margin:4px 0 0;opacity:.85}
+    .wellGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-top:10px}
+    .wellBlock{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--bg2)}
+    .wellBlockTitle{font-size:11.5px;font-weight:700;color:var(--t1);margin-bottom:10px;display:flex;align-items:center;gap:6px}
+    .wellRangeRow{display:flex;align-items:center;gap:10px}
+    .wellRange{flex:1;-webkit-appearance:none;appearance:none;height:6px;border-radius:3px;background:var(--line2);outline:none;cursor:pointer}
+    .wellRange::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:20px;height:20px;border-radius:50%;background:linear-gradient(135deg,var(--acc),var(--acc2));cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.3)}
+    .wellRangeVal{flex:none;width:30px;text-align:center;font-weight:700;font-size:16px;color:var(--acc);font-variant-numeric:tabular-nums}
     .field .req{color:var(--bad)}
     .inp,textarea.inp{width:100%;padding:8px 11px;border-radius:9px;border:1px solid var(--line);background:var(--bg3);
       color:var(--t1);font-size:12.5px;outline:none;transition:border .15s,box-shadow .15s;font-family:inherit}
@@ -269,7 +277,7 @@
     /* ================= 常量 / 状态 ================= */
     var LS_KEY = 'sportsdb_v1';
     /* 版本与更新：改内容后同时递增 APP_VERSION 并更新 version.json 里的 version 即可推送更新 */
-    var APP_VERSION = '1.0.2';
+    var APP_VERSION = '1.0.3';
     var UPDATE_JSON = 'https://cdn.jsdelivr.net/gh/Zhangoko/sports-db@latest/version.json';
     var DAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
     var DEF_ITEMS = ['30米', '60米', '100米', '110米', '150米', '200米', '300米'];
@@ -516,6 +524,36 @@
       if (st.readiness >= 80 && (st.fatigue === null || st.fatigue <= 6)) return '<span class="tag ok">训练适应正常</span>';
       if (st.readiness >= 65) return '<span class="tag warn">轻度疲劳，注意恢复</span>';
       return '<span class="tag bad">疲劳累积，建议减量恢复</span>';
+    }
+    function injuryOpts(cur) {
+      var s = '';
+      for (var i = 0; i < INJURY_OPTS.length; i++) s += '<option value="' + INJURY_OPTS[i] + '"' + (cur === INJURY_OPTS[i] ? ' selected' : '') + '>' + INJURY_OPTS[i] + '</option>';
+      return s;
+    }
+    /* 今日队伍状态卡片点击：查看具体名单（伤病可即时改状态） */
+    function openTeamDetail(type) {
+      var title = type === 'fatigue' ? '高疲劳（疲劳≥7）' : type === 'sleep' ? '睡眠不足（&lt;7小时）' : '伤病（非「无」）';
+      var list = '', n = 0;
+      for (var i = 0; i < DB.athletes.length; i++) {
+        var a = DB.athletes[i];
+        var w = todayWellness(a.id);
+        if (!w) continue;
+        var show = false, detail = '';
+        if (type === 'fatigue' && num(w.fatigue_score) >= 7) { show = true; detail = '疲劳 ' + w.fatigue_score; }
+        else if (type === 'sleep' && num(w.sleep_hours) > 0 && num(w.sleep_hours) < 7) { show = true; detail = '睡眠 ' + num(w.sleep_hours).toFixed(1) + ' 小时'; }
+        else if (type === 'injury' && w.injury_status && w.injury_status !== '无') { show = true; detail = '<select class="inp" data-act="injurySet" data-id="' + esc(a.id) + '" style="width:130px;padding:5px 8px">' + injuryOpts(w.injury_status) + '</select>'; }
+        if (show) {
+          n++;
+          list += '<div class="row" style="justify-content:space-between;padding:7px 0;border-bottom:1px dashed var(--line)"><span style="color:var(--t1)">' + esc(a.name) + (a.event ? ' <span class="sub">' + esc(a.event) + '</span>' : '') + '</span>' + detail + '</div>';
+        }
+      }
+      if (!n) list = '<div class="empty">当前没有符合条件的人</div>';
+      var ov = document.getElementById('overlay');
+      ov.innerHTML = '<div class="modal"><div class="modalTitle">' + title + '（' + n + ' 人）</div>' +
+        '<div class="modalSub">' + (type === 'injury' ? '伤病状态可直接下拉修改，改完即保存；' : '') + '点下方「关闭」返回。</div>' +
+        list +
+        '<div class="row mt12"><button class="btn btnGhost btnSm" data-act="teamDetailClose">' + ico('x') + '关闭</button></div></div>';
+      ov.classList.remove('hide');
     }
     function weekdayCN() { var d = new Date(); return DAYS[(d.getDay() + 6) % 7]; }
     function testDayOptions(cur) {
@@ -1137,9 +1175,9 @@
       var tsHtml = '<div class="stats" style="margin-bottom:0">' +
         '<div class="stat" style="--c:var(--acc)"><div class="ico">' + ico('athletes') + '</div><div class="lbl">运动员数量</div><div class="val">' + ts.total + '</div><div class="delta">今日已填 ' + ts.filled + ' 人</div></div>' +
         '<div class="stat" style="--c:' + (ts.avg !== null && ts.avg >= 75 ? 'var(--ok)' : ts.avg !== null && ts.avg >= 60 ? 'var(--warn)' : 'var(--bad)') + '"><div class="ico">' + ico('heart') + '</div><div class="lbl">平均准备度</div><div class="val">' + (ts.avg !== null ? ts.avg : '—') + '</div><div class="delta">' + (ts.avg !== null ? (ts.avg >= 75 ? '正常' : ts.avg >= 60 ? '需关注' : '风险') : '今日暂无记录') + '</div></div>' +
-        '<div class="stat" style="--c:' + (ts.highFatigue > 0 ? 'var(--warn)' : 'var(--ok)') + '"><div class="ico">' + ico('bolt') + '</div><div class="lbl">高疲劳人数</div><div class="val">' + ts.highFatigue + '</div><div class="delta">疲劳≥7</div></div>' +
-        '<div class="stat" style="--c:' + (ts.lowSleep > 0 ? 'var(--warn)' : 'var(--ok)') + '"><div class="ico">' + ico('cal') + '</div><div class="lbl">睡眠不足人数</div><div class="val">' + ts.lowSleep + '</div><div class="delta">睡眠&lt;7h</div></div>' +
-        '<div class="stat" style="--c:' + (ts.injured > 0 ? 'var(--bad)' : 'var(--ok)') + '"><div class="ico">' + ico('db') + '</div><div class="lbl">伤病人数</div><div class="val">' + ts.injured + '</div><div class="delta">非「无」状态</div></div>' +
+        '<div class="stat" style="--c:' + (ts.highFatigue > 0 ? 'var(--warn)' : 'var(--ok)') + ';cursor:pointer" data-act="teamDetail" data-type="fatigue"><div class="ico">' + ico('bolt') + '</div><div class="lbl">高疲劳人数</div><div class="val">' + ts.highFatigue + '</div><div class="delta">疲劳≥7 · 点击看名单</div></div>' +
+        '<div class="stat" style="--c:' + (ts.lowSleep > 0 ? 'var(--warn)' : 'var(--ok)') + ';cursor:pointer" data-act="teamDetail" data-type="sleep"><div class="ico">' + ico('cal') + '</div><div class="lbl">睡眠不足人数</div><div class="val">' + ts.lowSleep + '</div><div class="delta">睡眠&lt;7h · 点击看名单</div></div>' +
+        '<div class="stat" style="--c:' + (ts.injured > 0 ? 'var(--bad)' : 'var(--ok)') + ';cursor:pointer" data-act="teamDetail" data-type="injury"><div class="ico">' + ico('db') + '</div><div class="lbl">伤病人数</div><div class="val">' + ts.injured + '</div><div class="delta">非「无」 · 点击看名单</div></div>' +
       '</div>';
       var cards = {
         sTotal: '<div class="ovCard stat" draggable="true" data-key="sTotal" data-act="ovGo" data-tab="athletes" style="--c:var(--acc)"><span class="dragHint">' + ico('grip') + '</span><div class="ico">' + ico('athletes') + '</div><div class="lbl">运动员总数</div><div class="val">' + n + '</div><div class="delta">' + Object.keys(events).length + ' 个训练项目</div></div>',
@@ -1798,25 +1836,39 @@
       var dash = '<div class="stats">' +
         '<div class="stat" style="--c:var(--acc)"><div class="ico">' + ico('athletes') + '</div><div class="lbl">运动员数量</div><div class="val">' + st.total + '</div><div class="delta">今日已填 ' + st.filled + ' 人</div></div>' +
         '<div class="stat" style="--c:' + (st.avg !== null && st.avg >= 75 ? 'var(--ok)' : st.avg !== null && st.avg >= 60 ? 'var(--warn)' : 'var(--bad)') + '"><div class="ico">' + ico('heart') + '</div><div class="lbl">平均准备度</div><div class="val">' + (st.avg !== null ? st.avg : '—') + '</div><div class="delta">' + (st.avg !== null ? (st.avg >= 75 ? '正常' : st.avg >= 60 ? '需关注' : '风险') : '今日暂无记录') + '</div></div>' +
-        '<div class="stat" style="--c:' + (st.highFatigue > 0 ? 'var(--warn)' : 'var(--ok)') + '"><div class="ico">' + ico('bolt') + '</div><div class="lbl">高疲劳人数</div><div class="val">' + st.highFatigue + '</div><div class="delta">疲劳≥7 需关注</div></div>' +
-        '<div class="stat" style="--c:' + (st.lowSleep > 0 ? 'var(--warn)' : 'var(--ok)') + '"><div class="ico">' + ico('cal') + '</div><div class="lbl">睡眠不足人数</div><div class="val">' + st.lowSleep + '</div><div class="delta">睡眠&lt;7小时</div></div>' +
-        '<div class="stat" style="--c:' + (st.injured > 0 ? 'var(--bad)' : 'var(--ok)') + '"><div class="ico">' + ico('db') + '</div><div class="lbl">伤病人数</div><div class="val">' + st.injured + '</div><div class="delta">非「无」状态</div></div>' +
+        '<div class="stat" style="--c:' + (st.highFatigue > 0 ? 'var(--warn)' : 'var(--ok)') + ';cursor:pointer" data-act="teamDetail" data-type="fatigue"><div class="ico">' + ico('bolt') + '</div><div class="lbl">高疲劳人数</div><div class="val">' + st.highFatigue + '</div><div class="delta">疲劳≥7 需关注 · 点击看名单</div></div>' +
+        '<div class="stat" style="--c:' + (st.lowSleep > 0 ? 'var(--warn)' : 'var(--ok)') + ';cursor:pointer" data-act="teamDetail" data-type="sleep"><div class="ico">' + ico('cal') + '</div><div class="lbl">睡眠不足人数</div><div class="val">' + st.lowSleep + '</div><div class="delta">睡眠&lt;7小时 · 点击看名单</div></div>' +
+        '<div class="stat" style="--c:' + (st.injured > 0 ? 'var(--bad)' : 'var(--ok)') + ';cursor:pointer" data-act="teamDetail" data-type="injury"><div class="ico">' + ico('db') + '</div><div class="lbl">伤病人数</div><div class="val">' + st.injured + '</div><div class="delta">非「无」状态 · 点击看名单</div></div>' +
       '</div>';
       var f = today || { sleep_hours: '', sleep_quality: '', fatigue_score: '', soreness_score: '', mood_score: '', readiness_score: '', injury_status: '无', note: '' };
       var injSel = '<select class="inp" id="wellInjury">';
       for (var io = 0; io < INJURY_OPTS.length; io++) injSel += '<option value="' + INJURY_OPTS[io] + '"' + (f.injury_status === INJURY_OPTS[io] ? ' selected' : '') + '>' + INJURY_OPTS[io] + '</option>';
       injSel += '</select>';
+      function wRange(id, label, def, val) {
+        var v = val || 5;
+        return '<div class="field"><label>' + label + '</label>' +
+          '<div class="wellRangeRow"><input type="range" class="wellRange" id="' + id + '" min="1" max="10" value="' + v + '" /><span class="wellRangeVal" id="' + id + '_v">' + v + '</span></div>' +
+          '<span class="wellDef">' + def + '</span></div>';
+      }
       var form = '<div class="card" style="border-color:rgba(63,185,80,.3)"><div class="row"><span class="cardTitle" style="margin:0">每日状态记录（' + esc(a.name) + '）</span><span class="grow"></span>' + (today ? readinessTag(readinessIndex(today)) : '<span class="tag plain">今日未填</span>') + '</div>' +
-        '<div class="formGrid mt8">' +
-          '<div class="field"><label>日期</label><input class="inp" type="date" id="wellDate" value="' + esc(todayStr()) + '" /></div>' +
-          '<div class="field"><label>睡眠时间（小时）</label><input class="inp" id="wellSleepH" type="number" step="0.5" min="0" max="16" value="' + esc(f.sleep_hours) + '" placeholder="如 8.2" /></div>' +
-          '<div class="field"><label>睡眠质量（1-10）</label><input class="inp" id="wellSleepQ" type="number" min="1" max="10" value="' + esc(f.sleep_quality) + '" /></div>' +
-          '<div class="field"><label>主观疲劳（1-10）</label><input class="inp" id="wellFatigue" type="number" min="1" max="10" value="' + esc(f.fatigue_score) + '" /></div>' +
-          '<div class="field"><label>肌肉酸痛（1-10）</label><input class="inp" id="wellSoreness" type="number" min="1" max="10" value="' + esc(f.soreness_score) + '" /></div>' +
-          '<div class="field"><label>精神状态（1-10）</label><input class="inp" id="wellMood" type="number" min="1" max="10" value="' + esc(f.mood_score) + '" /></div>' +
-          '<div class="field"><label>训练意愿（1-10）</label><input class="inp" id="wellReadiness" type="number" min="1" max="10" value="' + esc(f.readiness_score) + '" /></div>' +
-          '<div class="field"><label>伤病状态</label>' + injSel + '</div>' +
-          '<div class="field grow" style="flex:1;min-width:180px"><label>备注（选填）</label><input class="inp" id="wellNote" value="' + esc(f.note || '') + '" placeholder="如：膝盖轻微不适" /></div>' +
+        '<div class="wellGrid">' +
+          '<div class="wellBlock"><div class="wellBlockTitle">📅 日期</div><div class="field"><input class="inp" type="date" id="wellDate" value="' + esc(todayStr()) + '" /></div></div>' +
+          '<div class="wellBlock"><div class="wellBlockTitle">😴 睡眠</div>' +
+            '<div class="field"><label>睡眠时间（小时）</label><input class="inp" id="wellSleepH" type="number" step="0.5" min="0" max="16" value="' + esc(f.sleep_hours) + '" placeholder="如 8.2" /><span class="wellDef">昨晚实际睡眠时长，如 8.2</span></div>' +
+            wRange('wellSleepQ', '睡眠质量（1-10）', '10非常好 · 8-9良好 · 6-7正常 · 4-5恢复不足 · 2-3较差 · 1严重不足', f.sleep_quality) +
+          '</div>' +
+          '<div class="wellBlock"><div class="wellBlockTitle">💪 身体感受</div>' +
+            wRange('wellFatigue', '主观疲劳（1-10）', '1非常轻松 · 5正常训练疲劳 · 7明显疲劳需关注 · 10无法正常训练', f.fatigue_score) +
+            wRange('wellSoreness', '肌肉酸痛（1-10）', '1无酸痛 · 5正常训练反应 · 8影响动作质量 · 10无法训练', f.soreness_score) +
+          '</div>' +
+          '<div class="wellBlock"><div class="wellBlockTitle">🧠 心理状态</div>' +
+            wRange('wellMood', '精神状态（1-10）', '1精神状态非常差 · 10精神状态非常好', f.mood_score) +
+            wRange('wellReadiness', '训练意愿（1-10）', '1完全不想训练 · 10训练欲望非常强', f.readiness_score) +
+          '</div>' +
+          '<div class="wellBlock"><div class="wellBlockTitle">🩹 伤病与备注</div>' +
+            '<div class="field"><label>伤病状态</label>' + injSel + '</div>' +
+            '<div class="field"><label>备注（选填）</label><input class="inp" id="wellNote" value="' + esc(f.note || '') + '" placeholder="如：膝盖轻微不适" /></div>' +
+          '</div>' +
         '</div>' +
         '<div class="row mt12"><button class="btn btnPrimary" data-act="wellSave">' + ico('check') + '保存今日状态</button><span class="hint">准备度 = 睡眠质量25% + 精神状态20% + 训练意愿20% + 疲劳反向20% + 酸痛反向15%，自动计算。</span></div>' +
       '</div>';
@@ -2292,6 +2344,10 @@
         save(); renderView();
       } else if (act === 'wellTrend') {
         S.wellTrend = +el.getAttribute('data-days'); renderView();
+      } else if (act === 'teamDetail') {
+        openTeamDetail(el.getAttribute('data-type'));
+      } else if (act === 'teamDetailClose') {
+        closeCell(); renderView();
       } else if (act === 'genTestData') {
         genTestData();
       } else if (act === 'cmpMode') {
@@ -2532,6 +2588,10 @@
         };
         rd.readAsText(f);
         el.value = '';
+      } else if (el.getAttribute && el.getAttribute('data-act') === 'injurySet') {
+        var iaid = el.getAttribute('data-id');
+        var iw = todayWellness(iaid);
+        if (iw) { iw.injury_status = el.value; save(); }
       } else if (el.getAttribute('data-act') === 'cmpDate') {
         S.cmpDate = el.value;
         renderView();
@@ -2553,6 +2613,10 @@
 
     document.addEventListener('input', function (e) {
       var el = e.target;
+      if (el.classList && el.classList.contains('wellRange')) {
+        var v2 = document.getElementById(el.id + '_v');
+        if (v2) v2.textContent = el.value;
+      }
       if (el.id === 'gsearch') {
         S.q = el.value;
         if (S.tab === 'athletes') renderView();
