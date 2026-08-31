@@ -2,8 +2,13 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>体育生数据库</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Coach Work" />
+  <meta name="theme-color" content="#0d1117" />
+  <title>Coach Work</title>
   <style>
     /* ================= 设计系统（参考 NocoDB / Teable 等开源数据库界面） ================= */
     :root{
@@ -241,7 +246,7 @@
     <main class="main">
       <header class="topbar">
         <div>
-          <div class="topTitle">体育生数据库</div>
+          <div class="topTitle">Coach Work</div>
           <div class="topSub">CSCS 田径周期化 · 档案 / 力量 / 训练内容 / 月计划 / 周期计划</div>
         </div>
         <span class="grow"></span>
@@ -264,8 +269,8 @@
     /* ================= 常量 / 状态 ================= */
     var LS_KEY = 'sportsdb_v1';
     /* 版本与更新：改内容后同时递增 APP_VERSION 并更新 version.json 里的 version 即可推送更新 */
-    var APP_VERSION = '1.0.0';
-    var UPDATE_JSON = 'https://cdn.jsdelivr.net/gh/你的用户名/你的仓库@latest/version.json';
+    var APP_VERSION = '1.0.1';
+    var UPDATE_JSON = 'https://cdn.jsdelivr.net/gh/Zhangoko/sports-db@latest/version.json';
     var DAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
     var DEF_ITEMS = ['30米', '60米', '100米', '110米', '150米', '200米', '300米'];
     var CYCLE_MODELS = {
@@ -878,7 +883,7 @@
       { key: 'cycle',    label: '周期计划', icon: 'cycle' }
     ];
     function renderSidebar() {
-      var html = '<div class="logo"><div class="logoMark">' + ico('db') + '</div><div><div class="logoName">体育生数据库</div><div class="logoSub">Athlete DB · CSCS</div></div></div>';
+      var html = '<div class="logo"><div class="logoMark">' + ico('db') + '</div><div><div class="logoName">Coach Work</div><div class="logoSub">Coach Work · CSCS</div></div></div>';
       for (var i = 0; i < NAVS.length; i++) {
         var n = NAVS[i];
         var cnt = '';
@@ -1752,7 +1757,7 @@
       var blob = new Blob(['\uFEFF' + xml], { type: 'application/vnd.ms-excel;charset=utf-8' });
       var a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = '体育生成绩.xls';
+      a.download = 'Coach Work成绩.xls';
       a.click();
       URL.revokeObjectURL(a.href);
     }
@@ -2054,7 +2059,7 @@
         var blob = new Blob([JSON.stringify(DB, null, 2)], { type: 'application/json' });
         var a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = '体育生数据库-备份.json';
+        a.download = 'Coach Work-备份.json';
         a.click();
         URL.revokeObjectURL(a.href);
       } else if (act === 'exportTemplate') {
@@ -2062,7 +2067,7 @@
         var blob2 = new Blob([tpl], { type: 'application/json' });
         var a2 = document.createElement('a');
         a2.href = URL.createObjectURL(blob2);
-        a2.download = '体育生数据库-模板（空）.json';
+        a2.download = 'Coach Work-模板（空）.json';
         a2.click();
         URL.revokeObjectURL(a2.href);
       } else if (act === 'downloadTemplate' || act === 'templateLink') {
@@ -2071,7 +2076,7 @@
             var blob3 = new Blob([src], { type: 'text/html;charset=utf-8' });
             var a3 = document.createElement('a');
             a3.href = URL.createObjectURL(blob3);
-            a3.download = '体育生数据库-模板（空）.html';
+            a3.download = 'Coach Work-模板（空）.html';
             a3.click();
             URL.revokeObjectURL(a3.href);
           } else {
@@ -2097,7 +2102,7 @@
       } else if (act === 'pickImport') {
         document.getElementById('importFile').click();
       } else if (act === 'clearAll') {
-        autoBackup('体育生数据库-清空前自动备份');
+        autoBackup('Coach Work-清空前自动备份');
         if (confirm('将清空全部数据（已自动下载一份当前数据备份）。确定清空？')) {
           DB = defaults();
           S.editId = null; S.sel = null;
@@ -2137,7 +2142,7 @@
           try {
             var d = JSON.parse(rd.result);
             if (!d || !Array.isArray(d.athletes)) throw new Error('bad');
-            autoBackup('体育生数据库-导入前自动备份');
+            autoBackup('Coach Work-导入前自动备份');
             if (!confirm('导入将覆盖当前数据（已自动下载一份备份）。确定继续？')) return;
             DB = Object.assign(defaults(), d);
             S.editId = null; S.sel = null;
