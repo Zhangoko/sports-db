@@ -1038,7 +1038,7 @@
     'use strict';
     /* ================= 常量 / 状态 ================= */
     var LS_KEY = 'sportsdb_v1';
-    var APP_VERSION = '2.0.2';
+    var APP_VERSION = '2.0.3';
     var UPDATE_JSON = 'https://zhangoko.github.io/sports-db/version.json';
     var DAYS = ['周一','周二','周三','周四','周五','周六','周日'];
     var DEF_ITEMS = ['30米','60米','100米','110米','150米','200米','300米'];
@@ -2231,9 +2231,16 @@
             '<div class="empty" style="padding:0">' +
               '<div class="emptyIcon" style="width:64px;height:64px;margin-bottom:12px">' + ico('athletes') + '</div>' +
               '<div class="emptyTitle" style="font-size:18px">还没有运动员</div>' +
-              '<div class="emptyDesc" style="max-width:360px;margin:8px auto 20px">添加第一名运动员，开始记录训练成绩、每日状态和训练计划。Coach Work 将为你生成专业的运动表现分析。</div>' +
+              '<div class="emptyDesc" style="max-width:360px;margin:8px auto 20px">先建立你的第一名运动员档案，添加基础信息后即可开始记录成绩、状态和训练计划。</div>' +
               '<button class="btn btnPrimary" data-act="addAthlete">' + ico('plus') + ' 添加第一名运动员</button> ' +
               '<button class="btn btnSecondary" data-act="genTestData">' + ico('chart') + ' 生成演示数据</button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="card">' +
+            '<div class="cardTitle">数据管理</div>' +
+            '<div class="row" style="justify-content:center">' +
+              '<button class="btn btnSecondary" data-act="pickImport">' + ico('import') + ' 导入备份</button>' +
+              '<button class="btn btnSecondary" data-act="exportData">' + ico('export') + ' 导出备份</button>' +
             '</div>' +
           '</div>';
         return;
@@ -2731,7 +2738,7 @@
       var v = document.getElementById('view');
       ensureSel();
       if (!S.sel) {
-        v.innerHTML = '<div class="card"><div class="empty"><div class="emptyIcon">' + ico('trophy') + '</div><div class="emptyTitle">请先在"运动员"页添加运动员</div><div class="emptyDesc">添加运动员后再记录训练成绩</div><button class="btn btnPrimary btnSm mt8" data-act="tab" data-tab="athletes">去添加</button></div></div>';
+        v.innerHTML = '<div class="card"><div class="empty"><div class="emptyIcon">' + ico('trophy') + '</div><div class="emptyTitle">请先在"运动员"页添加运动员</div><div class="emptyDesc">添加运动员后再记录训练成绩</div><button class="btn btnPrimary btnSm mt8" data-act="addAthlete">添加运动员</button></div></div>';
         return;
       }
       var a = getAthlete(S.sel);
@@ -2954,7 +2961,7 @@
     function renderCompare() {
       var v = document.getElementById('view');
       if (!DB.athletes.length) {
-        v.innerHTML = '<div class="card"><div class="empty"><div class="emptyIcon">' + ico('compare') + '</div><div class="emptyTitle">还没有运动员</div><button class="btn btnPrimary btnSm mt8" data-act="tab" data-tab="athletes">去添加</button></div></div>';
+        v.innerHTML = '<div class="card"><div class="empty"><div class="emptyIcon">' + ico('compare') + '</div><div class="emptyTitle">还没有运动员</div><button class="btn btnPrimary btnSm mt8" data-act="addAthlete">添加运动员</button></div></div>';
         return;
       }
       var items = [], itemSet = {};
@@ -3104,7 +3111,7 @@
     function renderWellness() {
       var v = document.getElementById('view');
       if (!DB.athletes.length) {
-        v.innerHTML = '<div class="card"><div class="empty"><div class="emptyIcon">' + ico('heart') + '</div><div class="emptyTitle">还没有运动员</div><div class="emptyDesc">先添加运动员再记录每日状态</div><button class="btn btnPrimary btnSm mt8" data-act="tab" data-tab="athletes">去添加</button></div></div>';
+        v.innerHTML = '<div class="card"><div class="empty"><div class="emptyIcon">' + ico('heart') + '</div><div class="emptyTitle">还没有运动员</div><div class="emptyDesc">先添加运动员再记录每日状态</div><button class="btn btnPrimary btnSm mt8" data-act="addAthlete">添加运动员</button></div></div>';
         return;
       }
       ensureSel();
@@ -3206,7 +3213,7 @@
       var v = document.getElementById('view');
       ensureSel();
       if (!S.sel) {
-        v.innerHTML = '<div class="card"><div class="empty"><div class="emptyIcon">' + ico('cal') + '</div><div class="emptyTitle">请先添加运动员</div><div class="emptyDesc">添加运动员后再回来一键生成训练计划</div><button class="btn btnPrimary btnSm mt8" data-act="tab" data-tab="athletes">去添加</button></div></div>';
+        v.innerHTML = '<div class="card"><div class="empty"><div class="emptyIcon">' + ico('cal') + '</div><div class="emptyTitle">请先添加运动员</div><div class="emptyDesc">添加运动员后再回来一键生成训练计划</div><button class="btn btnPrimary btnSm mt8" data-act="addAthlete">添加运动员</button></div></div>';
         return;
       }
       var a = getAthlete(S.sel);
@@ -3743,7 +3750,10 @@
         save(); renderView();
         toast('周期起始日已设置', 'success');
       } else if (act === 'addAthlete') {
-        S.editId = 'new'; renderView();
+        S.tab = 'athletes';
+        S.editId = 'new';
+        renderSidebar();
+        renderView();
       } else if (act === 'showAthlete') {
         S.editId = null;
         S.sel = el.getAttribute('data-id');
