@@ -1074,7 +1074,7 @@
     'use strict';
     /* ================= 常量 / 状态 ================= */
     var LS_KEY = 'sportsdb_v1';
-    var APP_VERSION = '2.1.0';
+    var APP_VERSION = '2.2.0';
     var UPDATE_JSON = 'https://zhangoko.github.io/sports-db/version.json';
     var DAYS = ['周一','周二','周三','周四','周五','周六','周日'];
     var DEF_ITEMS = ['30米','60米','100米','110米','150米','200米','300米'];
@@ -1153,14 +1153,60 @@
     function defaults() {
       return { athletes:[], items:DEF_ITEMS.slice(), month:{}, cycle:{}, results:{}, cycleStart:{}, ui:{}, wellness:{} };
     }
-    var DB, storageOk = true;
-    try {
-      var raw = localStorage.getItem(LS_KEY);
-      DB = raw ? Object.assign(defaults(), JSON.parse(raw)) : defaults();
-    } catch (e) { storageOk = false; DB = defaults(); }
+
+    /* ============================================================
+       数据访问层（DataAdapter）
+       - 当前实现：LocalStorage Adapter
+       - 未来接后端：将 load/save 替换为 fetch('/api/...') 即可，
+         所有页面通过 Store 读写，业务逻辑无需改动
+       ============================================================ */
+    var Store = {
+      KEY: LS_KEY,
+      load: function () {
+        try {
+          var raw = localStorage.getItem(this.KEY);
+          return raw ? Object.assign(defaults(), JSON.parse(raw)) : defaults();
+        } catch (e) { return defaults(); }
+      },
+      save: function (db) {
+        try { localStorage.setItem(this.KEY, JSON.stringify(db)); return true; }
+        catch (e) { return false; }
+      }
+      /* 未来 API Adapter 示例：
+      load: async function () { return fetch('/api/data').then(r => r.json()); },
+      save: async function (db) { return fetch('/api/data', { method:'POST', body: JSON.stringify(db) }); }
+      */
+    };
+
+    /* ============================================================
+       认证抽象（AuthService）
+       - 当前：本地单教练模式（无登录）
+       - 未来：接入后端登录后返回真实 User（USR-xxxx）
+       ============================================================ */
+    var AuthService = {
+      getCurrentUser: function () {
+        return { id: 'USR-LOCAL-COACH', name: 'Coach', role: 'coach' };
+      },
+      isAuthenticated: function () { return true; }
+    };
+
+    /* ============================================================
+       权限抽象（PermissionService）
+       - 当前：单教练全权限
+       - 未来：按 CoachAthleteRelationship 校验（前端隐藏≠安全，
+         服务端必须二次校验）
+       ============================================================ */
+    var PermissionService = {
+      canAccessAthlete: function (athleteId) { return true; },   /* 未来查 Relationship */
+      canEditAthlete: function (athleteId) { return true; },
+      canViewResults: function (athleteId) { return true; },
+      canSubmitWellness: function (athleteId) { return true; }
+    };
+
+    var DB = Store.load();
+    var storageOk = true;
     function save() {
-      try { localStorage.setItem(LS_KEY, JSON.stringify(DB)); storageOk = true; }
-      catch (e) { storageOk = false; }
+      storageOk = Store.save(DB);
     }
     function applyTheme() {
       var th = (DB.ui && DB.ui.theme === 'light') ? 'light' : 'dark';
@@ -1338,17 +1384,19 @@
     }
     function teamStatus() {
       var n = DB.athletes.length;
-      var sum = 0, cnt = 0, highFatigue = 0, lowSleep = 0, injured = 0;
+      var sum = 0, cnt = 0, highFatigue = 0, lowSleep = 0, injured = 0, fatigueSum = 0, fatigueCnt = 0;
       for (var i = 0; i < n; i++) {
         var w = todayWellness(DB.athletes[i].id);
         if (w) {
           sum += readinessIndex(w); cnt++;
-          if (num(w.fatigue_score) >= 7) highFatigue++;
+          var fv = num(w.fatigue_score);
+          if (fv > 0) { fatigueSum += fv; fatigueCnt++; }
+          if (fv >= 7) highFatigue++;
           if (num(w.sleep_hours) > 0 && num(w.sleep_hours) < 7) lowSleep++;
           if (w.injury_status && w.injury_status !== '无') injured++;
         }
       }
-      return { total:n, filled:cnt, avg:cnt ? Math.round(sum/cnt) : null, highFatigue:highFatigue, lowSleep:lowSleep, injured:injured };
+      return { total:n, filled:cnt, avg:cnt ? Math.round(sum/cnt) : null, avgFatigue:fatigueCnt ? (fatigueSum/fatigueCnt).toFixed(1) : null, highFatigue:highFatigue, lowSleep:lowSleep, injured:injured };
     }
     /* 统一风险分类：单一数据源，概览/状态页/Drawer 共用 */
     function classifyWellness(at) {
@@ -2406,13 +2454,13 @@
       var fillRate = ts.total ? Math.round(ts.filled / ts.total * 100) : 0;
       var kpiHtml = '<div class="kpiGrid">';
       var kpis = [
-        { icon:'athletes', label:'运动员总数', value:n, unit:'人', delta:'较上周 +2', color:'var(--primary)', cls:'neutral', tab:'athletes' },
-        { icon:'edit', label:'今日状态填写率', value:fillRate, unit:'%', delta:'较昨日 +5%', color:'var(--success)', cls:'up', tab:'wellness' },
-        { icon:'heart', label:'平均准备度', value:ts.avg !== null ? ts.avg : '—', unit:'/100', delta:ts.avg !== null ? '较昨日 -2' : '今日暂无记录', color:'var(--cyan)', cls: ts.avg !== null && ts.avg >= 75 ? 'up' : ts.avg !== null && ts.avg >= 60 ? 'neutral' : 'down', tab:'wellness' },
-        { icon:'bolt', label:'平均疲劳', value:ts.filled ? '4.6' : '—', unit:'/10', delta:'较昨日 +0.8', color:'var(--warning)', cls:'down', tab:'wellness' },
+        { icon:'athletes', label:'运动员总数', value:n, unit:'人', delta:'共 ' + n + ' 名运动员', color:'var(--primary)', cls:'neutral', tab:'athletes' },
+        { icon:'edit', label:'今日状态填写率', value:fillRate, unit:'%', delta:'已填 ' + ts.filled + ' / ' + ts.total + ' 人', color:'var(--success)', cls:'neutral', tab:'wellness' },
+        { icon:'heart', label:'平均准备度', value:ts.avg !== null ? ts.avg : '—', unit:'/100', delta:ts.avg !== null ? '今日 ' + ts.filled + ' 人已填' : '今日暂无记录', color:'var(--cyan)', cls: ts.avg !== null && ts.avg >= 75 ? 'up' : ts.avg !== null && ts.avg >= 60 ? 'neutral' : 'down', tab:'wellness' },
+        { icon:'bolt', label:'平均疲劳', value:ts.avgFatigue !== null ? ts.avgFatigue : '—', unit:'/10', delta:ts.avgFatigue !== null ? '今日 ' + ts.filled + ' 人已填' : '今日暂无记录', color:'var(--warning)', cls: ts.avgFatigue !== null && ts.avgFatigue >= 6 ? 'down' : 'neutral', tab:'wellness' },
         { icon:'alert', label:'高疲劳人数', value:ts.highFatigue, unit:'人', delta:'疲劳 ≥ 7', color:'var(--danger)', cls: ts.highFatigue > 0 ? 'down' : 'up', tab:'wellness' },
-        { icon:'shield', label:'伤病关注人数', value:ts.injured, unit:'人', delta:'需要关注以上', color:'#F59E0B', cls: ts.injured > 0 ? 'down' : 'up', tab:'wellness' },
-        { icon:'target', label:'训练计划完成率', value:cs.pct, unit:'%', delta:'本要完成率', color:'var(--success)', cls:'up', tab:'month' }
+        { icon:'shield', label:'伤病关注人数', value:ts.injured, unit:'人', delta:'非「无」状态', color:'#F59E0B', cls: ts.injured > 0 ? 'down' : 'up', tab:'wellness' },
+        { icon:'target', label:'训练计划完成率', value:cs.pct, unit:'%', delta:'完成 ' + cs.done + ' / ' + cs.total + ' 格', color:'var(--success)', cls:'neutral', tab:'month' }
       ];
       for (var ki = 0; ki < kpis.length; ki++) {
         var k = kpis[ki];
@@ -2464,14 +2512,14 @@
             '<div class="cardHeader"><div><div class="title">训练负荷趋势（全队）</div><div class="subtitle">近7天训练负荷总量</div></div>' +
             '<span class="chip on" style="cursor:default">近7天</span></div>' +
             '<div class="trendHeader"><span class="trendBig num">' + totalLoad.toLocaleString() + '</span><span class="trendUnit">AU</span>' +
-            '<span class="trendDelta" style="color:var(--success)">↑ 较上周 +18.6%</span></div>' +
+            '<span class="trendDelta">近7天</span></div>' +
             renderTrendChart(loadPoints, '#3B82F6', 'AU', 140) +
           '</div></div>' +
           '<div class="col-4"><div class="card">' +
             '<div class="cardHeader"><div><div class="title">准备度趋势（全队）</div><div class="subtitle">近7天平均准备度指数</div></div>' +
             '<span class="chip on" style="cursor:default">近7天</span></div>' +
             '<div class="trendHeader"><span class="trendBig num">' + avgReadiness + '</span><span class="trendUnit">/100</span>' +
-            '<span class="trendDelta" style="color:var(--danger)">↓ 较上周 -3</span></div>' +
+            '<span class="trendDelta">近7天</span></div>' +
             renderTrendChart(readinessPoints, '#10B981', '分', 140) +
           '</div></div>' +
         '</div>';
