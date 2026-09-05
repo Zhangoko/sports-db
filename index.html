@@ -1069,7 +1069,7 @@
     'use strict';
     /* ================= 常量 / 状态 ================= */
     var LS_KEY = 'sportsdb_v1';
-    var APP_VERSION = '2.0.4';
+    var APP_VERSION = '2.0.5';
     var UPDATE_JSON = 'https://zhangoko.github.io/sports-db/version.json';
     var DAYS = ['周一','周二','周三','周四','周五','周六','周日'];
     var DEF_ITEMS = ['30米','60米','100米','110米','150米','200米','300米'];
@@ -2692,7 +2692,7 @@
             '</div></div>' +
           '</div>' +
 
-          '<div class="row mt16"><button class="btn btnGhost btnSm" data-act="cancelAthlete">' + ico('x') + ' 返回列表</button></div>';
+          '<div class="row mt16"><button class="btn btnGhost btnSm" data-act="backToAthletes">' + ico('x') + ' 返回列表</button></div>';
         return;
         }
       }
@@ -3850,6 +3850,9 @@
         S.sel = el.getAttribute('data-id'); S.tab = 'results'; renderSidebar(); renderView();
       } else if (act === 'cancelAthlete') {
         S.editId = null; renderView();
+      } else if (act === 'backToAthletes') {
+        S.tab = 'athletes'; S.sel = null; S.editId = null;
+        renderSidebar(); renderView();
       } else if (act === 'delAthlete') {
         var id = el.getAttribute('data-id');
         var at = getAthlete(id);
