@@ -1074,7 +1074,7 @@
     'use strict';
     /* ================= 常量 / 状态 ================= */
     var LS_KEY = 'sportsdb_v1';
-    var APP_VERSION = '2.2.0';
+    var APP_VERSION = '2.3.0';
     var UPDATE_JSON = 'https://zhangoko.github.io/sports-db/version.json';
     var DAYS = ['周一','周二','周三','周四','周五','周六','周日'];
     var DEF_ITEMS = ['30米','60米','100米','110米','150米','200米','300米'];
@@ -1259,6 +1259,23 @@
     }
     var STRENGTH_ITEMS = ['深蹲','半蹲','高翻','卧推'];
     function isStrengthItem(item) { return STRENGTH_ITEMS.indexOf(item) >= 0; }
+    /* 田赛距离/投掷类项目（越大越好，区别于径赛时间类越小越好） */
+    var HIGHER_EVENTS = ['深蹲','半蹲','高翻','卧推','跳远','三级跳远','铅球','标枪','铁饼','跳高','立定跳远','实心球','引体向上','俯卧撑'];
+    function getEventDirection(item) {
+      return HIGHER_EVENTS.indexOf(item) >= 0 ? 'higher' : 'lower';
+    }
+    function isHigherBetter(item) { return getEventDirection(item) === 'higher'; }
+    function medianOf(arr) {
+      if (!arr || !arr.length) return null;
+      var s = arr.slice().sort(function (a, b) { return a - b; });
+      var m = Math.floor(s.length / 2);
+      return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+    }
+    function madOf(arr, median) {
+      var med = median === undefined ? medianOf(arr) : median;
+      var devs = arr.map(function (v) { return Math.abs(v - med); });
+      return medianOf(devs);
+    }
     function bestOf(arr, maxMode) {
       if (!arr || !arr.length) return null;
       var b = null;
@@ -1295,36 +1312,37 @@
       var weeks = Math.max(1, days / 7);
       return { rate: diff / weeks, weeks: weeks };
     }
-    function plateau(list, maxMode, hist) {
-      if (list.length < 5 || hist === null) return false;
-      var rec = list.slice(0,5);
-      var broke = false;
-      for (var i = 0; i < rec.length; i++) {
-        var t = num(rec[i].time);
-        if (t > 0 && Math.abs(t - hist) < 1e-9) { broke = true; break; }
-      }
-      if (broke) return false;
-      var span = (new Date(rec[0].date + 'T00:00:00') - new Date(rec[rec.length-1].date + 'T00:00:00')) / 86400000;
-      return span >= 14;
+    /* 平台期：严格条件（≥6条、≥21天跨度、每周相对变化<0.3%），仅输出「可能存在」信号 */
+    function plateau(list, higherBetter) {
+      var valid = list.filter(function (r) { return num(r.time) > 0; });
+      if (valid.length < 6) return false;
+      var sorted = valid.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+      var span = (new Date(sorted[sorted.length - 1].date + 'T00:00:00') - new Date(sorted[0].date + 'T00:00:00')) / 86400000;
+      if (span < 21) return false;
+      var times = sorted.map(function (r) { return num(r.time); });
+      var first = times[0], last = times[times.length - 1];
+      var mean = times.reduce(function (s, v) { return s + v; }, 0) / times.length;
+      var totalChange = Math.abs(last - first);
+      var relPerWeek = (mean > 0 ? totalChange / mean : 0) / (span / 7);
+      return relPerWeek < 0.003;
     }
-    function anomalySet(list, maxMode) {
-      var out = {};
-      var arr = list.slice(0,6);
-      if (arr.length < 4) return out;
-      var sum = 0;
-      for (var i = 0; i < arr.length; i++) sum += num(arr[i].time);
-      var mean = sum / arr.length;
-      var sd = 0;
-      for (var j = 0; j < arr.length; j++) sd += Math.pow(num(arr[j].time) - mean, 2);
-      sd = Math.sqrt(sd / arr.length);
-      if (sd < 1e-9) return out;
-      for (var k = 0; k < list.length; k++) {
-        var t = num(list[k].time);
-        if (t <= 0) continue;
-        var z = (t - mean) / sd;
-        if (maxMode ? z < -2 : z > 2) out[list[k].id] = true;
-      }
-      return out;
+    /* 成绩波动信号：相对变化阈值法（可解释、稳健、无基线泄漏）。
+       最新成绩 vs 此前数据中位数；相对变化 ≥1% 视为有意义变化，否则正常波动。 */
+    var MIN_MEANINGFUL_CHANGE = 0.01;
+    function anomalySet(list, higherBetter) {
+      var valid = list.filter(function (r) { return num(r.time) > 0; });
+      if (valid.length < 4) return { flags: {}, status: 'INSUFFICIENT_DATA' };
+      var current = valid[0];
+      var prior = valid.slice(1);
+      if (prior.length < 3) return { flags: {}, status: 'INSUFFICIENT_DATA' };
+      var median = medianOf(prior.map(function (r) { return num(r.time); }));
+      var cur = num(current.time);
+      var improved = higherBetter ? (cur > median) : (cur < median);
+      var rel = median > 0 ? (cur - median) / median : 0;
+      if (Math.abs(rel) < MIN_MEANINGFUL_CHANGE) return { flags: {}, status: 'NORMAL' };
+      var flags = {};
+      flags[current.id] = improved ? 'IMPROVEMENT' : 'DECLINE';
+      return { flags: flags, status: improved ? 'IMPROVEMENT' : 'DECLINE' };
     }
     function teamAvg(item) {
       var vals = [];
@@ -2965,22 +2983,23 @@
         if (S.recFilter !== 'all' && it !== S.recFilter) continue;
         var list = groups[it].slice().sort(function (x, y) { return x.date === y.date ? 0 : (x.date < y.date ? 1 : -1); });
         var maxMode = isStrengthItem(it);
+        var higherBetter = isHigherBetter(it);
         var unit = maxMode ? 'kg' : 's';
         var cleanList = cleanRecs(list);
-        var hist = bestOf(cleanList, maxMode);
-        var cyc = cycleStart ? bestOf(cleanRecs(list.filter(function (x) { return x.date >= cycleStart; })), maxMode) : null;
+        var hist = bestOf(cleanList, higherBetter);
+        var cyc = cycleStart ? bestOf(cleanRecs(list.filter(function (x) { return x.date >= cycleStart; })), higherBetter) : null;
         var arr = list.slice(0, 5);
         var trendTag = '';
         if (arr.length >= 2) {
           var f0 = num(arr[0].time), l0 = num(arr[arr.length-1].time);
           var diff = f0 - l0;
           if (Math.abs(diff) < 0.005) trendTag = '<span class="badge muted plainDot">近期平稳 →</span>';
-          else if (maxMode ? (diff > 0) : (diff < 0)) trendTag = '<span class="badge good plainDot">近期进步 ↑</span>';
+          else if (higherBetter ? (diff > 0) : (diff < 0)) trendTag = '<span class="badge good plainDot">近期进步 ↑</span>';
           else trendTag = '<span class="badge danger plainDot">近期退步 ↓</span>';
         }
-        var tr = trendInfo(list, maxMode);
-        var platTag = plateau(list, maxMode, hist) ? '<span class="badge warning plainDot">平台期</span>' : '';
-        var anom = anomalySet(list, maxMode);
+        var tr = trendInfo(list, higherBetter);
+        var platTag = plateau(list, higherBetter) ? '<span class="badge warning plainDot">可能存在平台期</span>' : '';
+        var anom = anomalySet(list, higherBetter);
 
         var rows = '';
         for (var n = 0; n < list.length; n++) {
@@ -2994,7 +3013,7 @@
           var mark = isHist ? '<span class="badge good plainDot">⭐ PB</span>'
             : isCyc ? '<span class="badge normal plainDot">周期最佳</span>' : '';
           if (overWind) mark += ' <span class="badge warning plainDot">超风速</span>';
-          if (anom[rc2.id]) mark += ' <span class="badge warning plainDot">疑似疲劳</span>';
+          if (anom.flags[rc2.id]) mark += anom.flags[rc2.id] === 'DECLINE' ? ' <span class="badge warning plainDot">成绩下降信号</span>' : ' <span class="badge good plainDot">成绩改善信号</span>';
           /* 与PB差值 */
           var pbDiffVal = (hist !== null && t > 0) ? (t - hist) : null;
           var pbDiffHtml = pbDiffVal !== null ? '<span style="color:' + (pbDiffVal > 0 ? 'var(--danger)' : pbDiffVal < 0 ? 'var(--success)' : 'var(--text-muted)') + ';font-weight:600">' + (pbDiffVal > 0 ? '+' : '') + pbDiffVal.toFixed(2) + '</span>' : '—';
@@ -3812,19 +3831,18 @@
         }
         for (var gi in groups) {
           var list = groups[gi].slice().sort(function(x,y){return x.date < y.date ? 1 : -1;});
-          var maxMode = isStrengthItem(gi);
-          var hist = bestOf(cleanRecs(list), maxMode);
-          if (plateau(list, maxMode, hist)) plateauList.push({ name:a.name, item:gi, id:a.id });
-          var anom = anomalySet(list, maxMode);
-          if (Object.keys(anom).length) anomalyList.push({ name:a.name, item:gi, count:Object.keys(anom).length, id:a.id });
+          var higherBetter = isHigherBetter(gi);
+          if (plateau(list, higherBetter)) plateauList.push({ name:a.name, item:gi, id:a.id });
+          var anom = anomalySet(list, higherBetter);
+          if (Object.keys(anom.flags).length) anomalyList.push({ name:a.name, item:gi, count:Object.keys(anom.flags).length, id:a.id });
         }
       }
       html += '<div class="dashGrid">' +
-        '<div class="col-6"><div class="card"><div class="cardHeader"><div><div class="title">平台期检测</div><div class="subtitle">连续5次未破最佳且跨度≥14天</div></div></div>' +
-        (plateauList.length ? plateauList.map(function(p){return '<div class="attentionItem" data-act="gotoResults" data-id="' + esc(p.id) + '"><div class="attentionAvatar" style="--c:' + colorOf(p.item) + '">' + esc(p.name.slice(0,1)) + '</div><div class="attentionInfo"><div class="attentionName">' + esc(p.name) + '</div><div class="attentionDetail">' + esc(p.item) + ' · 建议调整刺激</div></div><span class="badge warning plainDot">平台期</span></div>';}).join('') : '<div class="empty"><div class="emptyIcon">' + ico('check') + '</div><div class="emptyTitle">当前无平台期</div></div>') +
+        '<div class="col-6"><div class="card"><div class="cardHeader"><div><div class="title">平台期检测</div><div class="subtitle">≥6条成绩、≥3周跨度、无明显变化趋势</div></div></div>' +
+        (plateauList.length ? plateauList.map(function(p){return '<div class="attentionItem" data-act="gotoResults" data-id="' + esc(p.id) + '"><div class="attentionAvatar" style="--c:' + colorOf(p.item) + '">' + esc(p.name.slice(0,1)) + '</div><div class="attentionInfo"><div class="attentionName">' + esc(p.name) + '</div><div class="attentionDetail">' + esc(p.item) + ' · 建议结合训练观察</div></div><span class="badge warning plainDot">可能存在平台期</span></div>';}).join('') : '<div class="empty"><div class="emptyIcon">' + ico('check') + '</div><div class="emptyTitle">当前无明显平台期信号</div></div>') +
         '</div></div>' +
-        '<div class="col-6"><div class="card"><div class="cardHeader"><div><div class="title">异常检测</div><div class="subtitle">偏离近6次均值超2σ（疑似疲劳/状态不佳）</div></div></div>' +
-        (anomalyList.length ? anomalyList.map(function(p){return '<div class="attentionItem" data-act="gotoResults" data-id="' + esc(p.id) + '"><div class="attentionAvatar" style="--c:var(--danger)">' + esc(p.name.slice(0,1)) + '</div><div class="attentionInfo"><div class="attentionName">' + esc(p.name) + '</div><div class="attentionDetail">' + esc(p.item) + ' · ' + p.count + '次异常</div></div><span class="badge danger plainDot">异常</span></div>';}).join('') : '<div class="empty"><div class="emptyIcon">' + ico('check') + '</div><div class="emptyTitle">当前无异常记录</div></div>') +
+        '<div class="col-6"><div class="card"><div class="cardHeader"><div><div class="title">成绩波动</div><div class="subtitle">最新成绩较个人基线明显偏离（不代表疲劳或伤病）</div></div></div>' +
+        (anomalyList.length ? anomalyList.map(function(p){return '<div class="attentionItem" data-act="gotoResults" data-id="' + esc(p.id) + '"><div class="attentionAvatar" style="--c:var(--warning)">' + esc(p.name.slice(0,1)) + '</div><div class="attentionInfo"><div class="attentionName">' + esc(p.name) + '</div><div class="attentionDetail">' + esc(p.item) + ' · ' + p.count + ' 个成绩信号</div></div><span class="badge warning plainDot">成绩波动</span></div>';}).join('') : '<div class="empty"><div class="emptyIcon">' + ico('check') + '</div><div class="emptyTitle">当前无成绩波动信号</div></div>') +
         '</div></div></div>';
       v.innerHTML = html;
     }
