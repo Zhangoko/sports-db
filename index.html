@@ -1038,7 +1038,7 @@
     'use strict';
     /* ================= 常量 / 状态 ================= */
     var LS_KEY = 'sportsdb_v1';
-    var APP_VERSION = '2.0.0';
+    var APP_VERSION = '2.0.1';
     var UPDATE_JSON = 'https://zhangoko.github.io/sports-db/version.json';
     var DAYS = ['周一','周二','周三','周四','周五','周六','周日'];
     var DEF_ITEMS = ['30米','60米','100米','110米','150米','200米','300米'];
@@ -1058,7 +1058,7 @@
     ];
 
     /* ================= Toast 系统 ================= */
-    function toast(msg, type) {
+    function toast(msg, type, onClick) {
       type = type || 'success';
       var container = document.getElementById('toastContainer');
       if (!container) { alert(msg); return; }
@@ -1071,6 +1071,10 @@
       var el = document.createElement('div');
       el.className = 'toast ' + type;
       el.innerHTML = '<span class="toastIcon">' + (icons[type] || icons.info) + '</span><span>' + msg + '</span>';
+      if (onClick) {
+        el.style.cursor = 'pointer';
+        el.addEventListener('click', function () { onClick(); });
+      }
       container.appendChild(el);
       setTimeout(function () {
         el.classList.add('out');
@@ -1136,7 +1140,7 @@
         .then(function (r) { return r.json(); })
         .then(function (m) {
           if (m && m.version && m.version !== APP_VERSION && m.html) {
-            toast('发现新版本 ' + m.version + '，点击更新', 'info');
+            toast('发现新版本 ' + m.version + '，点击更新', 'info', function () { location.href = m.html + '?v=' + Date.now(); });
           }
         })
         .catch(function () {});
