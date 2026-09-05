@@ -1038,7 +1038,7 @@
     'use strict';
     /* ================= 常量 / 状态 ================= */
     var LS_KEY = 'sportsdb_v1';
-    var APP_VERSION = '2.0.1';
+    var APP_VERSION = '2.0.2';
     var UPDATE_JSON = 'https://zhangoko.github.io/sports-db/version.json';
     var DAYS = ['周一','周二','周三','周四','周五','周六','周日'];
     var DEF_ITEMS = ['30米','60米','100米','110米','150米','200米','300米'];
@@ -1140,10 +1140,15 @@
         .then(function (r) { return r.json(); })
         .then(function (m) {
           if (m && m.version && m.version !== APP_VERSION && m.html) {
-            toast('发现新版本 ' + m.version + '，点击更新', 'info', function () { location.href = m.html + '?v=' + Date.now(); });
+            var tried = null;
+            try { tried = sessionStorage.getItem('cw_tried_version'); } catch (e) {}
+            if (tried === m.version) return; /* 本会话已尝试更新到此版本，避免无限刷新 */
+            try { sessionStorage.setItem('cw_tried_version', m.version); } catch (e) {}
+            toast('正在更新到最新版 ' + m.version + ' …', 'info');
+            setTimeout(function () { location.href = m.html + '?v=' + m.version; }, 400);
           }
         })
-        .catch(function () {});
+        .catch(function () {}); /* 检查失败：忽略，继续用当前版本 */
     }
     function autoBackup(prefix) {
       try {
