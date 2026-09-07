@@ -163,10 +163,13 @@
     .logoMark{
       width:36px;height:36px;border-radius:10px;flex:none;
       display:flex;align-items:center;justify-content:center;
-      background:var(--primary);
-      color:#fff;
+      background:transparent;
+      overflow:hidden;
       box-shadow:none;
     }
+    .coachWorkLogo{display:block;width:36px;height:36px;flex:none}
+    .mobileBrandLogo{display:none;width:30px;height:30px;flex:none;overflow:hidden;border-radius:8px}
+    .mobileBrandLogo .coachWorkLogo{width:30px;height:30px}
     .logoName{font-size:15px;font-weight:800;letter-spacing:.3px;color:var(--text-primary)}
     .logoSub{font-size:10px;color:var(--text-muted);line-height:1.3;margin-top:1px;letter-spacing:.2px}
 
@@ -1063,6 +1066,7 @@
     .focusTitle{font-size:20px}.focusItem{padding:12px}.focusActions .btn{flex:1}
     .teamStrip{grid-template-columns:1fr 1fr}.teamMetric{padding:12px}.teamMetricValue{font-size:21px}
     .topbar{padding:10px 14px}.topSub,.headerDate,.searchWrap,#notifBtn{display:none}
+    .mobileBrandLogo{display:block}
     #addRecordBtn{padding:8px 10px}.content{padding:14px}
   }
 
@@ -1074,6 +1078,7 @@
     <aside class="sidebar" id="sidebar"></aside>
     <main class="main">
       <header class="topbar">
+        <span class="mobileBrandLogo" id="mobileBrandLogo"></span>
         <div>
           <div class="topTitle" id="pageTitle">概览</div>
           <div class="topSub" id="pageSubtitle">全队整体训练与状态概览</div>
@@ -1196,7 +1201,7 @@
     }
 
     function defaults() {
-      return { athletes:[], items:DEF_ITEMS.slice(), month:{}, cycle:{}, results:{}, cycleStart:{}, ui:{}, wellness:{} };
+      return { athletes:[], items:DEF_ITEMS.slice(), month:{}, cycle:{}, results:{}, cycleStart:{}, ui:{}, wellness:{}, eventConfigs:{} };
     }
 
     /* ============================================================
@@ -1259,6 +1264,7 @@
       normalized.cycleStart = source.cycleStart && typeof source.cycleStart === 'object' && !Array.isArray(source.cycleStart) ? source.cycleStart : {};
       normalized.ui = source.ui && typeof source.ui === 'object' && !Array.isArray(source.ui) ? source.ui : {};
       normalized.wellness = source.wellness && typeof source.wellness === 'object' && !Array.isArray(source.wellness) ? source.wellness : {};
+      normalized.eventConfigs = source.eventConfigs && typeof source.eventConfigs === 'object' && !Array.isArray(source.eventConfigs) ? source.eventConfigs : {};
       for (var i = 0; i < normalized.athletes.length; i++) {
         var athlete = normalized.athletes[i];
         if (!athlete.strength || typeof athlete.strength !== 'object') athlete.strength = {};
@@ -1309,7 +1315,7 @@
       } catch (e) {}
     }
 
-    var S = { tab:'overview', editId:null, sel:null, cell:null, q:'', monthPhase:'GP', cycleModel:'macro', planMode:'cscs', recItem:null, recFilter:'all', recEditId:null, cmpMode:'hist', wellTrend:7, wellnessFilter:'all', statusModeAid:null };
+    var S = { tab:'overview', editId:null, sel:null, cell:null, q:'', monthPhase:'GP', cycleModel:'macro', planMode:'cscs', recItem:null, recFilter:'all', recEditId:null, recCustom:'', recDate:'', cmpMode:'hist', wellTrend:7, wellnessFilter:'all', athleteEventFilter:'all', athleteStatusFilter:'all', statusModeAid:null };
 
     function esc(s) {
       return String(s == null ? '' : s).replace(/[&<>"']/g, function (m) {
@@ -1322,17 +1328,56 @@
       var p = function (x) { return String(x).padStart(2,'0'); };
       return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate());
     }
+    function dateAgo(days) {
+      var d = new Date(todayStr() + 'T00:00:00');
+      d.setDate(d.getDate() - days);
+      var p = function (x) { return String(x).padStart(2,'0'); };
+      return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate());
+    }
+    function generateTestData30() {
+      autoBackup('Coach Work-生成测试数据前自动备份');
+      if (!confirm('将在现有数据后追加 30 名测试运动员，不会覆盖已有数据。是否继续？')) return;
+      var stamp = Date.now().toString(36);
+      for (var i = 0; i < 30; i++) {
+        var id = 'test-' + stamp + '-' + i;
+        var eventName = i % 3 === 0 ? '100米' : i % 3 === 1 ? '跳远' : '铅球';
+        var at = { id:id, name:'测试运动员' + (i + 1), age:String(16 + i % 5), event:eventName, height:'', weight:'', trainingYears:'', testDay:'', strength:{}, items:[eventName], note:'测试数据', isTestData:true };
+        DB.athletes.push(at); DB.results[id] = []; DB.wellness[id] = [];
+        var attention = i < 4;
+        DB.wellness[id].push({ id:uid(), date:todayStr(), sleep_hours:attention ? '5.5' : '8', sleep_quality:attention ? 4 : 8, fatigue_score:attention ? 8 : 3, soreness_score:attention ? 7 : 2, mood_score:attention ? 5 : 8, readiness_score:attention ? 4 : 8, injury_status:'无', note:'', isTestData:true });
+        for (var r = 0; r < 4; r++) DB.results[id].push({ id:uid(), item:eventName, date:dateAgo(21 - r * 7), time:eventName === '100米' ? 12.4 - r * 0.02 : 6 + r * 0.01, unit:unitOf(eventName), direction:getEventDirection(eventName), note:'', isTestData:true });
+      }
+      save(); renderSidebar(); renderView(); toast('已追加 30 名测试运动员', 'success');
+    }
+    function clearTestData() {
+      var ids = DB.athletes.filter(function (a) { return a.isTestData; }).map(function (a) { return a.id; });
+      if (!ids.length) { toast('当前没有测试运动员', 'info'); return; }
+      autoBackup('Coach Work-清除测试数据前自动备份');
+      if (!confirm('仅删除标记为测试数据的 ' + ids.length + ' 名运动员，保留全部真实数据。是否继续？')) return;
+      DB.athletes = DB.athletes.filter(function (a) { return !a.isTestData; });
+      for (var i = 0; i < ids.length; i++) { delete DB.results[ids[i]]; delete DB.wellness[ids[i]]; delete DB.month[ids[i]]; delete DB.cycle[ids[i]]; delete DB.cycleStart[ids[i]]; }
+      if (ids.indexOf(S.sel) >= 0) S.sel = null;
+      save(); renderSidebar(); renderView(); toast('测试数据已清除，真实数据已保留', 'success');
+    }
     var STRENGTH_ITEMS = ['深蹲','半蹲','高翻','卧推'];
     function isStrengthItem(item) { return STRENGTH_ITEMS.indexOf(item) >= 0; }
-    /* 只对规则明确的项目计算 PB、趋势和排名；自定义项目保持 unknown，避免猜测。 */
-    var HIGHER_EVENTS = ['深蹲','半蹲','高翻','卧推','跳远','三级跳远','铅球','标枪','铁饼','跳高','立定跳远','实心球','引体向上','俯卧撑'];
-    function getEventDirection(item) {
+    /* 统一项目配置：已知项目自动识别；未知项目不猜单位和评价方向。 */
+    function getEventConfig(item) {
       var value = String(item || '').trim();
-      if (!value) return 'unknown';
-      if (HIGHER_EVENTS.indexOf(value) >= 0 || /(跳远|跳高|投掷|铅球|标枪|铁饼|力量|深蹲|半蹲|高翻|卧推)/.test(value)) return 'higher';
-      if (/((^|[^0-9])\d+(\.\d+)?\s*(米|m)($|[^a-z]))|跑|跨栏|栏|竞走|马拉松|游泳|计时|秒/.test(value.toLowerCase())) return 'lower';
-      return 'unknown';
+      var stored = DB.eventConfigs && DB.eventConfigs[value];
+      if (stored) return { name:value, unit:String(stored.unit || ''), direction:stored.direction || 'unknown', windApplicable:!!stored.windApplicable, timingApplicable:!!stored.timingApplicable, custom:true };
+      if (!value) return { name:'', unit:'', direction:'unknown', windApplicable:false, timingApplicable:false, custom:true };
+      if (isStrengthItem(value) || /(力量|深蹲|半蹲|高翻|卧推)/.test(value)) return { name:value, unit:'kg', direction:'higher', windApplicable:false, timingApplicable:false, custom:false };
+      if (/(引体向上|俯卧撑|次数|个数)/.test(value)) return { name:value, unit:'次', direction:'higher', windApplicable:false, timingApplicable:false, custom:false };
+      if (/(跳远|三级跳远|跳高|立定跳远|铅球|标枪|铁饼|投掷|实心球)/.test(value)) return { name:value, unit:'m', direction:'higher', windApplicable:/(跳远|三级跳远)/.test(value) && !/立定/.test(value), timingApplicable:false, custom:false };
+      if (/((^|[^0-9])\d+(\.\d+)?\s*(米|m)($|[^a-z]))|跑|跨栏|栏|竞走|马拉松|游泳|计时|秒/.test(value.toLowerCase())) return { name:value, unit:'s', direction:'lower', windApplicable:/^(30|50|60|100|110|150|200)\s*(米|m)?|栏|跨栏/.test(value), timingApplicable:true, custom:false };
+      for (var aid in DB.results) {
+        var list = DB.results[aid] || [];
+        for (var i = list.length - 1; i >= 0; i--) if (list[i].item === value && (list[i].unit || list[i].direction)) return { name:value, unit:String(list[i].unit || ''), direction:list[i].direction || 'unknown', windApplicable:!!list[i].wind, timingApplicable:!!list[i].timing, custom:true };
+      }
+      return { name:value, unit:'', direction:'unknown', windApplicable:false, timingApplicable:false, custom:true };
     }
+    function getEventDirection(item) { return getEventConfig(item).direction; }
     function isHigherBetter(item) { return getEventDirection(item) === 'higher'; }
     function medianOf(arr) {
       if (!arr || !arr.length) return null;
@@ -1357,14 +1402,7 @@
       }
       return b;
     }
-    function unitOf(item) {
-      var direction = getEventDirection(item);
-      if (isStrengthItem(item)) return 'kg';
-      if (/(引体向上|俯卧撑)/.test(String(item || ''))) return '次';
-      if (direction === 'higher') return 'm';
-      if (direction === 'lower') return 's';
-      return '';
-    }
+    function unitOf(item) { return getEventConfig(item).unit; }
     function performanceDeltaColor(delta, higherBetter) {
       if (delta === null || Math.abs(delta) < 1e-9) return 'var(--text-muted)';
       var worse = higherBetter ? delta < 0 : delta > 0;
@@ -1528,20 +1566,16 @@
         soreness: tw ? num(tw.soreness_score) : null,
         injury: tw ? tw.injury_status : '无'
       };
-      if (!tw) return { item: item, group: 'notFilled' };
+      if (!tw || !hasCompleteWellness(tw)) return { item: item, group: 'notFilled', category:'NO_DATA' };
       if (item.fatigue >= 8 || (item.readiness !== null && item.readiness < 50) || item.injury === '暂停训练') {
         item.reason = item.fatigue >= 8 ? '高疲劳 ' + item.fatigue : item.readiness !== null && item.readiness < 50 ? '低准备度 ' + item.readiness : '伤病暂停';
-        return { item: item, group: 'highRisk' };
-      }
-      if (!hasCompleteWellness(tw)) {
-        item.reason = '今日状态数据不完整';
-        return { item: item, group: 'attention' };
+        return { item: item, group: 'highRisk', category:'NEEDS_ATTENTION' };
       }
       if (item.fatigue >= 7 || (item.readiness !== null && item.readiness < 65) || item.soreness >= 7 || item.injury !== '无') {
         item.reason = item.fatigue >= 7 ? '疲劳上升 ' + item.fatigue : item.readiness !== null && item.readiness < 65 ? '准备度 ' + item.readiness : item.soreness >= 7 ? '酸痛较高 ' + item.soreness : item.injury;
-        return { item: item, group: 'attention' };
+        return { item: item, group: 'attention', category:'NEEDS_ATTENTION' };
       }
-      return { item: item, group: 'good' };
+      return { item: item, group: 'good', category:'NORMAL' };
     }
     function getRiskGroups() {
       var g = { highRisk: [], needAttention: [], goodStatus: [], notFilled: [] };
@@ -1611,16 +1645,9 @@
           item = { priority:'MEDIUM', type:'NEEDS_ATTENTION', title:'今日状态有需要复核的指标', evidenceLevel:'中等信号' };
         } else if (perfDecline) {
           item = { priority:'MEDIUM', type:'PERFORMANCE_CHANGE', title:'近期主项表现出现下降信号', evidenceLevel:perf.evidenceLevel };
-        } else if (perf.status === 'IMPROVEMENT' && daysSince(perf.latest.date) <= 7) {
-          evidence.push(perf.item + ' 最近 ' + perf.latestValue.toFixed(2) + unitOf(perf.item) + '；此前中位基线 ' + perf.baseline.toFixed(2) + unitOf(perf.item));
-          evidence.push('相对基线 ' + (perf.rawChangePct >= 0 ? '+' : '') + perf.rawChangePct.toFixed(2) + '%');
-          item = { priority:'LOW', type:'POSITIVE_CHANGE', title:'近期主项表现出现改善信号', evidenceLevel:perf.evidenceLevel };
         } else if (perf.status === 'POSSIBLE_PLATEAU') {
           evidence.push(perf.item + ' 已有 ' + perf.count + ' 条有效成绩，跨度至少 21 天');
           item = { priority:'LOW', type:'POSSIBLE_PLATEAU', title:'主项可能进入平台期', evidenceLevel:perf.evidenceLevel };
-        } else if (!tw) {
-          evidence.push('截至今天尚无状态记录');
-          item = { priority:'INFO', type:'MISSING_DATA', title:'今日 Wellness 待填写', evidenceLevel:'待补充数据' };
         }
         if (!item) continue;
         item.athleteId = athlete.id;
@@ -1632,7 +1659,7 @@
       focus.sort(function (a, b) {
         var p = priorityRank[a.priority] - priorityRank[b.priority];
         if (p) return p;
-        var typeRank = { NEEDS_ATTENTION:0, PERFORMANCE_CHANGE:1, POSSIBLE_PLATEAU:2, POSITIVE_CHANGE:3, MISSING_DATA:4 };
+        var typeRank = { NEEDS_ATTENTION:0, PERFORMANCE_CHANGE:1, POSSIBLE_PLATEAU:2 };
         return (typeRank[a.type] || 0) - (typeRank[b.type] || 0);
       });
       return focus;
@@ -1682,7 +1709,7 @@
       injSel += '</select>';
       sm.innerHTML =
         '<div class="smCard card">' +
-          '<div class="logo" style="border:none;padding:0;margin-bottom:14px"><div class="logoMark">' + ico('db') + '</div><div><div class="logoName">Coach Work</div><div class="logoSub">今日训练状态</div></div></div>' +
+          '<div class="logo" style="border:none;padding:0;margin-bottom:14px"><div class="logoMark">' + coachWorkLogo() + '</div><div><div class="logoName">Coach Work</div><div class="logoSub">今日训练状态</div></div></div>' +
           '<div class="cardHeader" style="padding:0 0 12px"><div><div class="title">' + esc(a.name) + '</div><div class="subtitle">' + esc(a.event) + ' · 请填写今日状态</div></div></div>' +
           '<div class="field mb8"><label>日期</label><input class="inp" type="date" id="smDate" value="' + esc(todayStr()) + '" /></div>' +
           '<div class="field mb8"><label>睡眠时间（小时）</label><input class="inp" id="smSleepH" type="number" step="0.5" min="0" max="16" value="' + esc(f.sleep_hours) + '" placeholder="如 8.2" /></div>' +
@@ -1755,16 +1782,19 @@
       var titleMap = {
         highFatigue: { title:'高疲劳运动员', sub:'当前检测到高疲劳状态（疲劳 ≥ 7）的运动员', icon:'bolt' },
         lowSleep: { title:'睡眠不足运动员', sub:'当前睡眠时间不足 7 小时的运动员', icon:'cal' },
-        injured: { title:'伤病运动员', sub:'当前存在伤病记录的运动员', icon:'shield' }
+        injured: { title:'伤病运动员', sub:'当前存在伤病记录的运动员', icon:'shield' },
+        notFilled: { title:'今日未填写', sub:'今天尚无完整 Wellness 记录的运动员', icon:'heart' }
       };
       var meta = titleMap[type] || { title:'状态详情', sub:'', icon:'heart' };
       var list = '', n = 0;
       for (var i = 0; i < DB.athletes.length; i++) {
         var a = DB.athletes[i];
         var w = todayWellness(a.id);
-        if (!w) continue;
+        if (!w && type !== 'notFilled') continue;
         var show = false, valText = '', unit = '', badgeCls = '', badgeText = '', valColor = '';
-        if (type === 'highFatigue' && num(w.fatigue_score) >= 7) {
+        if (type === 'notFilled' && (!w || !hasCompleteWellness(w))) {
+          show = true; badgeCls = 'muted'; badgeText = 'NO_DATA';
+        } else if (type === 'highFatigue' && num(w.fatigue_score) >= 7) {
           show = true; valText = w.fatigue_score; unit = '/10'; valColor = 'var(--warning)';
           badgeCls = num(w.fatigue_score) >= 8 ? 'danger' : 'warning';
           badgeText = num(w.fatigue_score) >= 8 ? '高疲劳' : '疲劳';
@@ -1788,6 +1818,19 @@
       if (!list) list = '<div class="drawerEmpty"><div class="drawerEmptyIcon">✓</div><div>当前没有符合条件的运动员</div></div>';
       document.getElementById('drawerTitle').textContent = meta.title + '（' + n + ' 人）';
       document.getElementById('drawerSub').textContent = meta.sub;
+      document.getElementById('drawerBody').innerHTML = '<div class="statusList">' + list + '</div>';
+      document.getElementById('statusDrawer').classList.add('show');
+      document.getElementById('drawerMask').classList.add('show');
+    }
+    function openAllFocus() {
+      var focus = getTodayFocus();
+      var list = '';
+      for (var i = 0; i < focus.length; i++) {
+        var f = focus[i];
+        list += '<div class="statusItem" data-act="' + (f.type === 'NEEDS_ATTENTION' ? 'gotoWellness' : 'gotoResults') + '" data-id="' + esc(f.athleteId) + '" data-item="' + esc(f.event) + '"><div class="statusItemAvatar" style="--c:' + colorOf(f.event) + '">' + esc((f.athleteName || '?').slice(0,1)) + '</div><div class="statusItemInfo"><div class="statusItemName">' + esc(f.athleteName) + '</div><div class="statusItemMeta">' + esc(f.title) + '</div></div><span class="badge warning plainDot">需要关注</span></div>';
+      }
+      document.getElementById('drawerTitle').textContent = '今日关注（' + focus.length + ' 人）';
+      document.getElementById('drawerSub').textContent = '仅列出已有明确证据的关注信号';
       document.getElementById('drawerBody').innerHTML = '<div class="statusList">' + list + '</div>';
       document.getElementById('statusDrawer').classList.add('show');
       document.getElementById('drawerMask').classList.add('show');
@@ -2473,8 +2516,12 @@
       report: { title:'报告', sub:'数据报告与导出' }
     };
 
+    function coachWorkLogo() {
+      return '<svg class="coachWorkLogo" viewBox="50 532 212 212" role="img" aria-label="Coach Work Logo"><image href="coach-work-logo.jpg" x="0" y="0" width="1480" height="1080"/></svg>';
+    }
+
     function renderSidebar() {
-      var html = '<div class="logo"><div class="logoMark">' + ico('db') + '</div><div><div class="logoName">Coach Work</div><div class="logoSub">Athlete Training & Performance · v' + APP_VERSION + '</div></div></div>';
+      var html = '<div class="logo"><div class="logoMark">' + coachWorkLogo() + '</div><div><div class="logoName">Coach Work</div><div class="logoSub">Athlete Training & Performance · v' + APP_VERSION + '</div></div></div>';
 
       var sections = [
         { key:'daily', label:'日常工作' },
@@ -2508,6 +2555,8 @@
         '<input type="file" id="importFile" accept=".json,application/json" class="hide" />' +
       '</div>';
       document.getElementById('sidebar').innerHTML = html;
+      var mobileLogo = document.getElementById('mobileBrandLogo');
+      if (mobileLogo) mobileLogo.innerHTML = coachWorkLogo();
 
       var meta = PAGE_META[S.tab] || { title:S.tab, sub:'' };
       var pt = document.getElementById('pageTitle');
@@ -2852,21 +2901,20 @@
             '<div class="emptyIcon">' + ico('athletes') + '</div>' +
             '<div class="emptyTitle">先建立第一名运动员档案</div>' +
             '<div class="emptyDesc">录入真实成绩和每日状态后，今日关注会自动整理需要查看的人与对应证据。</div>' +
-            '<div class="row mt12" style="justify-content:center"><button class="btn btnPrimary" data-act="addAthlete">' + ico('plus') + ' 添加运动员</button><button class="btn btnSecondary" data-act="pickImport">' + ico('import') + ' 导入已有备份</button></div>' +
+            '<div class="row mt12" style="justify-content:center"><button class="btn btnPrimary" data-act="addAthlete">' + ico('plus') + ' 添加运动员</button><button class="btn btnSecondary" data-act="pickImport">' + ico('import') + ' 导入已有备份</button><button class="btn btnGhost" data-act="generateTestData">生成30名测试运动员</button></div>' +
           '</div></div>';
         return;
       }
 
       var groups = getRiskGroups();
-      var allFocus = getTodayFocus();
+      var allFocus = getTodayFocus().filter(function (x) { return x.type === 'NEEDS_ATTENTION' || x.type === 'PERFORMANCE_CHANGE' || x.type === 'POSSIBLE_PLATEAU'; });
       var visibleFocus = allFocus.slice(0, 6);
-      var needsAttentionCount = allFocus.filter(function (x) { return x.priority === 'HIGH' || x.priority === 'MEDIUM'; }).length;
-      var positiveCount = allFocus.filter(function (x) { return x.type === 'POSITIVE_CHANGE'; }).length;
+      var needsAttentionCount = allFocus.length;
       var missingCount = groups.notFilled.length;
       var priorityMeta = {
         HIGH:{ cls:'signal-high', label:'高优先级' },
         MEDIUM:{ cls:'signal-medium', label:'需要关注' },
-        LOW:{ cls:'signal-low', label:'积极变化' },
+        LOW:{ cls:'signal-low', label:'可能平台' },
         INFO:{ cls:'signal-info', label:'待补数据' }
       };
       var focusHtml = '';
@@ -2879,31 +2927,31 @@
             '<div class="focusItemTop"><div><div class="focusAthlete">' + esc(f.athleteName) + '</div><div class="focusEvent">主项 · ' + esc(f.event) + '</div></div><span class="signalPill">' + pm.label + '</span></div>' +
             '<div class="focusItemTitle">' + esc(f.title) + '</div>' +
             '<div class="focusEvidence">' + evidenceHtml + '</div>' +
-            '<div class="focusActions"><button class="btn btnGhost btnSm" data-act="showAthlete" data-id="' + esc(f.athleteId) + '">查看运动员</button><button class="btn btnGhost btnSm" data-act="gotoResults" data-id="' + esc(f.athleteId) + '">查看成绩</button><button class="btn btnGhost btnSm" data-act="gotoWellness" data-id="' + esc(f.athleteId) + '">查看状态</button><span class="grow"></span><span class="hint">' + esc(f.evidenceLevel) + '</span></div>' +
+            '<div class="focusActions"><button class="btn btnGhost btnSm" data-act="showAthlete" data-id="' + esc(f.athleteId) + '">查看运动员</button>' + (f.type === 'NEEDS_ATTENTION' ? '<button class="btn btnGhost btnSm" data-act="gotoWellness" data-id="' + esc(f.athleteId) + '">查看状态</button>' : '<button class="btn btnGhost btnSm" data-act="gotoResults" data-id="' + esc(f.athleteId) + '" data-item="' + esc(f.event) + '">查看成绩</button>') + '<span class="grow"></span><span class="hint">' + esc(f.evidenceLevel) + '</span></div>' +
           '</article>';
       }
       if (!focusHtml) {
-        focusHtml = '<div class="empty" style="grid-column:1/-1;padding:32px"><div class="emptyIcon">' + ico('check') + '</div><div class="emptyTitle">今日暂无重点关注信号</div><div class="emptyDesc">当前已填写数据中没有达到关注阈值的变化。</div></div>';
+        focusHtml = '<div class="empty" style="grid-column:1/-1;padding:32px"><div class="emptyIcon">' + ico('check') + '</div><div class="emptyTitle">今日暂无明确关注信号</div><div class="emptyDesc">目前已有数据中暂未发现需要优先处理的变化。</div></div>';
       }
       if (allFocus.length > visibleFocus.length) {
-        focusHtml += '<button class="focusMore" data-act="tab" data-tab="wellness">还有 ' + (allFocus.length - visibleFocus.length) + ' 名运动员需要查看，前往状态页 →</button>';
+        focusHtml += '<button class="focusMore" data-act="openAllFocus">查看全部' + allFocus.length + '名需要关注运动员 →</button>';
       }
 
       var focusSection =
         '<section class="card focusHero">' +
-          '<div class="focusHeader"><div><div class="focusEyebrow">Today\'s Focus</div><div class="focusTitle">今天谁需要我关注？</div><div class="focusSummary">' + (needsAttentionCount ? '有 ' + needsAttentionCount + ' 名运动员出现需要复核的信号。' : '当前没有高优先级信号。') + (positiveCount ? ' 另有 ' + positiveCount + ' 名出现积极变化。' : '') + '</div></div>' +
+          '<div class="focusHeader"><div><div class="focusEyebrow">Today\'s Focus</div><div class="focusTitle">今日关注</div><div class="focusSummary">' + (needsAttentionCount ? '有 ' + needsAttentionCount + ' 名运动员出现需要复核的信号。' : '当前没有需要优先处理的变化。') + '</div></div>' +
           '<div class="quickActions"><button class="btn btnPrimary btnSm" data-act="recQuickAdd">' + ico('plus') + ' 成绩</button><button class="btn btnSecondary btnSm" data-act="wellnessQuick">' + ico('heart') + ' 状态</button><button class="btn btnSecondary btnSm" data-act="tab" data-tab="month">' + ico('cal') + ' 训练</button></div></div>' +
           '<div class="focusList">' + focusHtml + '</div>' +
         '</section>';
 
       var filled = athletes.length - missingCount;
       var teamSection =
-        '<div class="sectionHeading"><div><h2>今日全队状态</h2><p>仅统计今天已保存的 Wellness 记录</p></div><span class="localMode">本地单教练模式</span></div>' +
+        '<div class="sectionHeading"><div><h2>今日全队状态</h2><p>仅统计今天已完整保存的 Wellness 记录</p></div><div class="row"><button class="btn btnGhost btnSm" data-act="openStatusDrawer" data-type="notFilled">查看未填写</button><span class="localMode">本地单教练模式</span></div></div>' +
         '<div class="teamStrip">' +
           '<div class="teamMetric"><div class="teamMetricLabel">今日填写</div><div class="teamMetricValue">' + filled + ' / ' + athletes.length + '</div><div class="teamMetricMeta">未填写 ' + missingCount + ' 人</div></div>' +
-          '<div class="teamMetric"><div class="teamMetricLabel">高优先级</div><div class="teamMetricValue" style="color:' + (groups.highRisk.length ? 'var(--danger)' : 'var(--text-primary)') + '">' + groups.highRisk.length + '</div><div class="teamMetricMeta">来自今日状态规则</div></div>' +
-          '<div class="teamMetric"><div class="teamMetricLabel">需要关注</div><div class="teamMetricValue" style="color:' + (groups.needAttention.length ? 'var(--warning)' : 'var(--text-primary)') + '">' + groups.needAttention.length + '</div><div class="teamMetricMeta">需教练复核</div></div>' +
+          '<div class="teamMetric"><div class="teamMetricLabel">需要关注</div><div class="teamMetricValue" style="color:' + ((groups.highRisk.length + groups.needAttention.length) ? 'var(--warning)' : 'var(--text-primary)') + '">' + (groups.highRisk.length + groups.needAttention.length) + '</div><div class="teamMetricMeta">需教练复核</div></div>' +
           '<div class="teamMetric"><div class="teamMetricLabel">状态良好</div><div class="teamMetricValue" style="color:var(--success)">' + groups.goodStatus.length + '</div><div class="teamMetricMeta">不含未填写</div></div>' +
+          '<div class="teamMetric"><div class="teamMetricLabel">未填写</div><div class="teamMetricValue">' + missingCount + '</div><div class="teamMetricMeta">单独归为 NO_DATA</div></div>' +
         '</div>';
 
       var performanceRows = [], latestSignals = [];
@@ -2911,18 +2959,18 @@
         var athlete = athletes[a], primary = getAthletePrimaryEvent(athlete);
         if (!primary) continue;
         var signal = getPerformanceSignal(athlete.id, primary);
-        if (!signal.latest) continue;
+        if (!signal.latest || ['DECLINE','IMPROVEMENT','POSSIBLE_PLATEAU'].indexOf(signal.status) < 0) continue;
         latestSignals.push({ athlete:athlete, signal:signal });
       }
       latestSignals.sort(function (x, y) { return x.signal.latest.date < y.signal.latest.date ? 1 : -1; });
-      var signalLabels = { DECLINE:'下降信号', IMPROVEMENT:'改善信号', NORMAL:'正常波动', POSSIBLE_PLATEAU:'可能平台', INSUFFICIENT_DATA:'数据不足' };
+      var signalLabels = { DECLINE:'下降信号', IMPROVEMENT:'改善信号', POSSIBLE_PLATEAU:'可能平台' };
       var signalClasses = { DECLINE:'danger', IMPROVEMENT:'good', NORMAL:'muted', POSSIBLE_PLATEAU:'warning', INSUFFICIENT_DATA:'muted' };
-      for (var p = 0; p < Math.min(latestSignals.length, 6); p++) {
+      for (var p = 0; p < Math.min(latestSignals.length, 8); p++) {
         var ps = latestSignals[p], sg = ps.signal;
-        performanceRows.push('<tr data-act="gotoResults" data-id="' + esc(ps.athlete.id) + '" style="cursor:pointer"><td><div class="athleteCell"><span class="avatar" style="--c:' + colorOf(ps.athlete.event) + '">' + esc((ps.athlete.name || '?').slice(0,1)) + '</span><span style="font-weight:700">' + esc(ps.athlete.name) + '</span></div></td><td>' + esc(sg.item) + '</td><td class="numCell">' + sg.latestValue.toFixed(2) + unitOf(sg.item) + '</td><td class="numCell">' + (sg.baseline != null ? sg.baseline.toFixed(2) + unitOf(sg.item) : '—') + '</td><td><span class="badge ' + (signalClasses[sg.status] || 'muted') + ' plainDot">' + (signalLabels[sg.status] || '数据不足') + '</span></td><td class="sub">' + esc(sg.latest.date) + '</td></tr>');
+        performanceRows.push('<tr data-act="gotoResults" data-id="' + esc(ps.athlete.id) + '" data-item="' + esc(sg.item) + '" style="cursor:pointer"><td><div class="athleteCell"><span class="avatar" style="--c:' + colorOf(ps.athlete.event) + '">' + esc((ps.athlete.name || '?').slice(0,1)) + '</span><span style="font-weight:700">' + esc(ps.athlete.name) + '</span></div></td><td>' + esc(sg.item) + '</td><td class="numCell">' + sg.latestValue.toFixed(2) + unitOf(sg.item) + '</td><td class="numCell">' + (sg.baseline != null ? sg.baseline.toFixed(2) + unitOf(sg.item) : '—') + '</td><td><span class="badge ' + (signalClasses[sg.status] || 'muted') + ' plainDot">' + (signalLabels[sg.status] || '') + '</span></td><td class="sub">' + esc(sg.latest.date) + '</td></tr>');
       }
       var performanceSection =
-        '<div class="sectionHeading"><div><h2>近期表现</h2><p>最近成绩与个人近期中位基线比较</p></div><button class="btn btnGhost btnSm" data-act="tab" data-tab="results">查看成绩</button></div>' +
+        '<div class="sectionHeading"><div><h2>近期成绩变化</h2><p>仅显示改善、下降或可能平台等有意义的变化</p></div><button class="btn btnGhost btnSm" data-act="tab" data-tab="results">查看成绩</button></div>' +
         '<div class="card" style="padding:0"><div class="tableWrap" style="border:0"><table class="perfTable"><thead><tr><th>运动员</th><th>主项</th><th class="textRight">最近</th><th class="textRight">此前基线</th><th>信号</th><th>日期</th></tr></thead><tbody>' +
           (performanceRows.length ? performanceRows.join('') : '<tr><td colspan="6"><div class="empty"><div class="emptyTitle">暂无可分析的主项成绩</div><div class="emptyDesc">每个项目至少需要 4 条有效成绩，才能生成变化信号。</div></div></td></tr>') +
         '</tbody></table></div></div>';
@@ -3119,16 +3167,22 @@
 
       /* 列表 */
       var q = S.q.trim().toLowerCase();
+      var eventSet = {}, eventOptions = '<option value="all">全部主项</option>';
+      for (var eo = 0; eo < DB.athletes.length; eo++) if (DB.athletes[eo].event) eventSet[DB.athletes[eo].event] = true;
+      Object.keys(eventSet).sort().forEach(function (eventName) { eventOptions += '<option value="' + esc(eventName) + '"' + (S.athleteEventFilter === eventName ? ' selected' : '') + '>' + esc(eventName) + '</option>'; });
       var rows = '';
       var shown = 0;
       for (var r = 0; r < DB.athletes.length; r++) {
         var at = DB.athletes[r];
         if (q && (at.name || '').toLowerCase().indexOf(q) < 0 && (at.event || '').toLowerCase().indexOf(q) < 0) continue;
-        shown++;
+        if (S.athleteEventFilter !== 'all' && at.event !== S.athleteEventFilter) continue;
         var tw2 = todayWellness(at.id);
         var rd2 = tw2 ? readinessIndex(tw2) : null;
         var fat2 = tw2 ? num(tw2.fatigue_score) : null;
         var wc2 = classifyWellness(at);
+        var statusKey = wc2.category === 'NEEDS_ATTENTION' ? 'attention' : wc2.category === 'NORMAL' ? 'normal' : 'missing';
+        if (S.athleteStatusFilter !== 'all' && S.athleteStatusFilter !== statusKey) continue;
+        shown++;
         var statusBadge = wc2.group === 'notFilled' ? '<span class="badge muted plainDot">未填写</span>'
           : wc2.group === 'good' ? '<span class="badge good plainDot">状态良好</span>'
           : wc2.group === 'attention' ? '<span class="badge warning plainDot" title="' + esc(wc2.item.reason || '') + '">需要关注</span>'
@@ -3162,9 +3216,10 @@
       v.innerHTML =
         '<div class="flexBetween mb12">' +
           '<span class="hint" style="font-weight:600;color:var(--text-secondary)">' + shown + ' / ' + DB.athletes.length + ' 名运动员' + (q ? '（搜索：' + esc(S.q.trim()) + '）' : '') + '</span>' +
-          '<button class="btn btnPrimary" data-act="addAthlete">' + ico('plus') + ' 新建运动员</button>' +
+          '<div class="row"><button class="btn btnGhost btnSm" data-act="generateTestData">生成30名测试运动员</button><button class="btn btnGhost btnSm" data-act="clearTestData">清除测试数据</button><button class="btn btnPrimary" data-act="addAthlete">' + ico('plus') + ' 新建运动员</button></div>' +
         '</div>' +
         formHtml +
+        '<div class="row mb12"><input class="inp" id="athleteSearch" data-act="athleteSearch" value="' + esc(S.q) + '" placeholder="搜索姓名或主项" style="min-width:200px" /><select class="inp" data-act="athleteEventFilter">' + eventOptions + '</select><div class="chipRow"><button class="chip' + (S.athleteStatusFilter === 'all' ? ' on' : '') + '" data-act="athleteStatusFilter" data-filter="all">全部</button><button class="chip' + (S.athleteStatusFilter === 'attention' ? ' on' : '') + '" data-act="athleteStatusFilter" data-filter="attention">需关注</button><button class="chip' + (S.athleteStatusFilter === 'normal' ? ' on' : '') + '" data-act="athleteStatusFilter" data-filter="normal">正常</button><button class="chip' + (S.athleteStatusFilter === 'missing' ? ' on' : '') + '" data-act="athleteStatusFilter" data-filter="missing">未填写</button></div></div>' +
         '<div class="tableWrap"><table class="tbl">' +
           '<thead><tr><th>运动员</th><th>主项</th><th class="textRight">年龄</th><th class="textRight">主项最近</th><th class="textRight">主项 PB</th><th class="textRight">准备度</th><th class="textRight">疲劳</th><th>今日状态</th><th></th></tr></thead>' +
           '<tbody>' + rows + '</tbody>' +
@@ -3206,9 +3261,12 @@
       var items = [];
       for (var bi = 0; bi < STRENGTH_ITEMS.length; bi++) if (items.indexOf(STRENGTH_ITEMS[bi]) < 0) items.push(STRENGTH_ITEMS[bi]);
       for (var bi2 = 0; bi2 < baseItems.length; bi2++) if (items.indexOf(baseItems[bi2]) < 0) items.push(baseItems[bi2]);
+      for (var bi3 = 0; bi3 < recs.length; bi3++) if (items.indexOf(recs[bi3].item) < 0) items.push(recs[bi3].item);
       if (!S.recItem || items.indexOf(S.recItem) < 0) S.recItem = items.length ? items[0] : (DB.items[0] || '');
-      var recDirection = getEventDirection(S.recItem);
-      var recUnit = unitOf(S.recItem);
+      var recEffectiveItem = (S.recCustom || '').trim() || S.recItem;
+      var recConfig = getEventConfig(recEffectiveItem);
+      var recDirection = recConfig.direction;
+      var recUnit = recConfig.unit;
 
       var itemChips = '';
       for (var i = 0; i < items.length; i++) {
@@ -3400,12 +3458,14 @@
         '<div class="card mb16"><div class="cardHeader"><div><div class="title">记录训练成绩</div><div class="subtitle">选择项目后输入成绩，回车快速保存</div></div></div>' +
           '<div class="chipRow mb8">' + itemChips + '</div>' +
           '<div class="field mb8"><label>自行输入训练内容（选填；填了优先于上方选择，不在列表也能记）</label><input class="inp" id="recCustom" value="' + esc(S.recCustom || '') + '" placeholder="如：400米 / 立定跳远 / 技术训练" /></div>' +
-          '<div class="hint mb8">将记入：<span class="badge normal plainDot">' + esc(S.recItem) + '</span> ' + (recDirection === 'higher' ? '数值越高越好' : recDirection === 'lower' ? '用时越低越好' : '项目方向未定义，只保存原始数值') + '</div>' +
+          '<div class="hint mb8">将记入：<span class="badge normal plainDot" id="recEffectiveLabel">' + esc(recEffectiveItem) + '</span> <span id="recDirectionHint">' + (recDirection === 'higher' ? '数值越高越好' : recDirection === 'lower' ? '数值越低越好' : '项目方向未定义，只保存原始数值') + '</span></div>' +
           '<div class="row" style="align-items:flex-end">' +
             '<div class="field" style="min-width:140px"><label>日期</label><input class="inp" type="date" id="recDate" value="' + esc(S.recDate || todayStr()) + '" /></div>' +
-            '<div class="field" style="min-width:130px"><label>成绩' + (recUnit ? '（' + recUnit + '）' : '数值') + '</label><input class="inp" id="recTime" type="number" step="0.01" min="0" placeholder="' + (recUnit === 'kg' ? '如100（可备注 5×5）' : '如12.35') + '" /></div>' +
-            (recDirection !== 'lower' ? '' : '<div class="field" style="min-width:96px"><label>风速 m/s</label><input class="inp" id="recWind" type="number" step="0.1" placeholder="如+1.2 / -0.5" /></div>' +
-            '<div class="field" style="min-width:96px"><label>计时</label><select class="inp" id="recTiming"><option value="">—</option><option value="手计">手计</option><option value="电计">电计</option></select></div>') +
+            '<div class="field" style="min-width:130px"><label id="recValueLabel">成绩' + (recUnit ? '（' + recUnit + '）' : '数值') + '</label><input class="inp" id="recTime" type="number" step="0.01" min="0" placeholder="' + (recUnit === 'kg' ? '如100（可备注 5×5）' : '如12.35') + '" /></div>' +
+            '<div class="field" id="recUnitField" style="min-width:100px;' + (recConfig.custom ? '' : 'display:none') + '"><label>单位（选填）</label><input class="inp" id="recUnit" value="' + esc(recUnit) + '" placeholder="请输入单位，例如：秒、米、kg、次、分" /></div>' +
+            '<div class="field" id="recDirectionField" style="min-width:130px;' + (recConfig.custom ? '' : 'display:none') + '"><label>评价方向（选填）</label><select class="inp" id="recDirection"><option value="unknown"' + (recDirection === 'unknown' ? ' selected' : '') + '>不评价</option><option value="lower"' + (recDirection === 'lower' ? ' selected' : '') + '>数值越低越好</option><option value="higher"' + (recDirection === 'higher' ? ' selected' : '') + '>数值越高越好</option></select></div>' +
+            (recConfig.windApplicable ? '<div class="field" style="min-width:96px"><label>风速 m/s</label><input class="inp" id="recWind" type="number" step="0.1" placeholder="如+1.2 / -0.5" /></div>' : '') +
+            (recConfig.timingApplicable ? '<div class="field" style="min-width:96px"><label>计时</label><select class="inp" id="recTiming"><option value="">—</option><option value="手计">手计</option><option value="电计">电计</option></select></div>' : '') +
             '<div class="field grow" style="flex:1;min-width:150px"><label>备注（选填）</label><input class="inp" id="recNote" placeholder="如：起跑反应 / 逆风 / 测试" /></div>' +
             '<button class="btn btnPrimary" data-act="recSave">' + ico('check') + ' 保存记录</button>' +
           '</div>' +
@@ -3946,10 +4006,16 @@
       var custom = customInp ? customInp.value.trim() : '';
       var item = custom || S.recItem;
       if (!item) { toast('请选择或输入训练内容', 'error'); return; }
-      var direction = getEventDirection(item);
+      var baseConfig = getEventConfig(item);
+      var unitInp = document.getElementById('recUnit');
+      var directionInp = document.getElementById('recDirection');
+      var resultUnit = unitInp ? unitInp.value.trim() : baseConfig.unit;
+      var direction = directionInp ? directionInp.value : baseConfig.direction;
+      if (custom) {
+        DB.eventConfigs[item] = { unit:resultUnit, direction:direction, windApplicable:baseConfig.windApplicable, timingApplicable:baseConfig.timingApplicable };
+      }
       var knownDirection = direction !== 'unknown';
       var maxMode = direction === 'higher';
-      var resultUnit = unitOf(item);
       var tVal = parseFloat(document.getElementById('recTime').value);
       if (!isFinite(tVal) || tVal <= 0) { toast('请输入大于 0 的有效成绩数值', 'error'); return; }
       var date = document.getElementById('recDate').value || todayStr();
@@ -3964,7 +4030,9 @@
       if (!DB.results[S.sel]) DB.results[S.sel] = [];
       var list2 = DB.results[S.sel];
       var prevHist = knownDirection ? bestOf(cleanRecs(list2.filter(function (x) { return x.item === item; })), maxMode) : null;
-      var rec = { id:uid(), item:item, date:date, time:tVal, note:note, wind:wind, timing:timing };
+      var rec = { id:uid(), item:item, date:date, time:tVal, unit:resultUnit, direction:direction, note:note };
+      if (baseConfig.windApplicable && wind) rec.wind = wind;
+      if (baseConfig.timingApplicable && timing) rec.timing = timing;
       list2.push(rec);
       var newHist = knownDirection ? bestOf(cleanRecs(list2.filter(function (x) { return x.item === item; })), maxMode) : null;
       var improved = knownDirection && newHist !== null && (prevHist === null || (maxMode ? (newHist > prevHist) : (newHist < prevHist)));
@@ -4034,6 +4102,7 @@
       for (var i = 0; i < list.length; i++) if (list[i].id === rid) { rec = list[i]; break; }
       if (!rec) return;
       S.recEditId = rid;
+      var editConfig = getEventConfig(rec.item);
       var ov = document.getElementById('overlay');
       ov.innerHTML =
         '<div class="modal">' +
@@ -4042,8 +4111,8 @@
           '<div class="row" style="align-items:flex-end">' +
             '<div class="field" style="min-width:140px"><label>日期</label><input class="inp" type="date" id="reDate" value="' + esc(rec.date) + '" /></div>' +
             '<div class="field" style="min-width:130px"><label>成绩' + (unitOf(rec.item) ? '（' + unitOf(rec.item) + '）' : '数值') + '</label><input class="inp" id="reTime" type="number" step="0.01" min="0" value="' + esc(rec.time) + '" /></div>' +
-            (isStrengthItem(rec.item) ? '' : '<div class="field" style="min-width:96px"><label>风速 m/s</label><input class="inp" id="reWind" type="number" step="0.1" value="' + esc(rec.wind || '') + '" placeholder="如+1.2" /></div>' +
-            '<div class="field" style="min-width:96px"><label>计时</label><select class="inp" id="reTiming"><option value="">—</option><option value="手计"' + (rec.timing === '手计' ? ' selected' : '') + '>手计</option><option value="电计"' + (rec.timing === '电计' ? ' selected' : '') + '>电计</option></select></div>') +
+            (editConfig.windApplicable ? '<div class="field" style="min-width:96px"><label>风速 m/s</label><input class="inp" id="reWind" type="number" step="0.1" value="' + esc(rec.wind || '') + '" placeholder="如+1.2" /></div>' : '') +
+            (editConfig.timingApplicable ? '<div class="field" style="min-width:96px"><label>计时</label><select class="inp" id="reTiming"><option value="">—</option><option value="手计"' + (rec.timing === '手计' ? ' selected' : '') + '>手计</option><option value="电计"' + (rec.timing === '电计' ? ' selected' : '') + '>电计</option></select></div>' : '') +
             '<div class="field grow" style="flex:1;min-width:150px"><label>备注</label><input class="inp" id="reNote" value="' + esc(rec.note || '') + '" /></div>' +
           '</div>' +
           '<div class="modalFooter">' +
@@ -4168,6 +4237,14 @@
         openAthleteDrawer(el.getAttribute('data-id'));
       } else if (act === 'openStatusDrawer') {
         openStatusDrawer(el.getAttribute('data-type'));
+      } else if (act === 'openAllFocus') {
+        openAllFocus();
+      } else if (act === 'generateTestData') {
+        generateTestData30();
+      } else if (act === 'clearTestData') {
+        clearTestData();
+      } else if (act === 'athleteStatusFilter') {
+        S.athleteStatusFilter = el.getAttribute('data-filter') || 'all'; renderView();
       } else if (act === 'athleteStatusDetail') {
         openAthleteStatusDetail(el.getAttribute('data-id'));
       } else if (act === 'closeDrawer') {
@@ -4267,11 +4344,12 @@
       } else if (act === 'exportExcel') {
         exportExcel();
       } else if (act === 'recItem') {
-        S.recItem = el.getAttribute('data-item'); renderView();
+        S.recItem = el.getAttribute('data-item'); S.recCustom = ''; renderView();
       } else if (act === 'recFilter') {
         S.recFilter = el.getAttribute('data-item'); renderView();
       } else if (act === 'recQuick') {
         S.recItem = el.getAttribute('data-item');
+        S.recCustom = '';
         S.recFilter = 'all';
         renderView();
         setTimeout(function () { var ti = document.getElementById('recTime'); if (ti) ti.focus(); }, 60);
@@ -4336,9 +4414,12 @@
       } else if (act === 'planFor') {
         S.sel = el.getAttribute('data-id'); S.tab = 'month'; renderSidebar(); renderView();
       } else if (act === 'gotoResults') {
-        S.sel = el.getAttribute('data-id'); S.tab = 'results'; renderSidebar(); renderView();
+        S.sel = el.getAttribute('data-id');
+        var targetItem = el.getAttribute('data-item');
+        if (targetItem) { S.recItem = targetItem; S.recFilter = targetItem; S.recCustom = ''; }
+        S.tab = 'results'; closeDrawer(); renderSidebar(); renderView();
       } else if (act === 'gotoWellness') {
-        S.sel = el.getAttribute('data-id'); S.tab = 'wellness'; S.wellnessFilter = 'all'; renderSidebar(); renderView();
+        S.sel = el.getAttribute('data-id'); S.tab = 'wellness'; S.wellnessFilter = 'all'; closeDrawer(); renderSidebar(); renderView();
       } else if (act === 'cancelAthlete') {
         S.editId = null; renderView();
       } else if (act === 'backToAthletes') {
@@ -4557,6 +4638,10 @@
       } else if (el.getAttribute('data-act') === 'cmpDate') {
         S.cmpDate = el.value;
         renderView();
+      } else if (el.getAttribute('data-act') === 'athleteEventFilter') {
+        S.athleteEventFilter = el.value || 'all'; renderView();
+      } else if (el.id === 'recCustom') {
+        S.recCustom = el.value.trim(); renderView();
       } else if (el.getAttribute('data-act') === 'cycleWeeks') {
         var n = Math.max(1, Math.min(12, parseInt(el.value, 10) || 1));
         var plan = ensurePlan('cycle', S.sel);
@@ -4586,6 +4671,8 @@
       if (el.id === 'gsearch') {
         S.q = el.value;
         if (S.tab === 'athletes') renderView();
+      } else if (el.id === 'athleteSearch') {
+        S.q = el.value; renderView();
       } else if (el.getAttribute && el.getAttribute('data-act') === 'phase') {
         var plan = ensurePlan('cycle', S.sel);
         plan.phases[+el.getAttribute('data-w')] = el.value;
@@ -4624,6 +4711,15 @@
     applyTheme();
     renderSidebar();
     renderView();
+    window.__cwTest = {
+      getRiskGroups:getRiskGroups,
+      categories:function () { return DB.athletes.map(function (a) { return classifyWellness(a).category; }); },
+      getEventConfig:getEventConfig,
+      state:function () { return { sel:S.sel, recItem:S.recItem, recFilter:S.recFilter }; },
+      generateTestData30:generateTestData30,
+      clearTestData:clearTestData,
+      summary:function () { return { total:DB.athletes.length, test:DB.athletes.filter(function (a) { return a.isTestData; }).length, names:DB.athletes.map(function (a) { return a.name; }), eventConfigs:DB.eventConfigs, results:DB.results }; }
+    };
     checkUpdate();
   })();
   </script>
