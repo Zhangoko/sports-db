@@ -1122,7 +1122,7 @@
     'use strict';
     /* ================= 常量 / 状态 ================= */
     var LS_KEY = 'sportsdb_v1';
-    var APP_VERSION = '3.0.1';
+    var APP_VERSION = '3.0.3';
     var UPDATE_JSON = 'https://zhangoko.github.io/sports-db/version.json';
     var DAYS = ['周一','周二','周三','周四','周五','周六','周日'];
     var DEF_ITEMS = ['30米','60米','100米','110米','150米','200米','300米'];
@@ -1201,7 +1201,7 @@
     }
 
     function defaults() {
-      return { athletes:[], items:DEF_ITEMS.slice(), month:{}, cycle:{}, results:{}, cycleStart:{}, ui:{}, wellness:{}, eventConfigs:{} };
+      return { athletes:[], items:DEF_ITEMS.slice(), month:{}, cycle:{}, results:{}, cycleStart:{}, ui:{}, wellness:{}, eventConfigs:{}, trainingGroups:[], groupPlans:{}, groupPlanMeta:{}, personalPlans:{}, executionGroups:{}, trainingCompletion:{} };
     }
 
     /* ============================================================
@@ -1265,10 +1265,19 @@
       normalized.ui = source.ui && typeof source.ui === 'object' && !Array.isArray(source.ui) ? source.ui : {};
       normalized.wellness = source.wellness && typeof source.wellness === 'object' && !Array.isArray(source.wellness) ? source.wellness : {};
       normalized.eventConfigs = source.eventConfigs && typeof source.eventConfigs === 'object' && !Array.isArray(source.eventConfigs) ? source.eventConfigs : {};
+      normalized.trainingGroups = Array.isArray(source.trainingGroups) ? source.trainingGroups.filter(function (g) { return g && g.id && g.name; }).map(function (g) { return { id:g.id, name:g.name, planVisible:g.planVisible !== false }; }) : [];
+      normalized.groupPlans = source.groupPlans && typeof source.groupPlans === 'object' && !Array.isArray(source.groupPlans) ? source.groupPlans : {};
+      normalized.groupPlanMeta = source.groupPlanMeta && typeof source.groupPlanMeta === 'object' && !Array.isArray(source.groupPlanMeta) ? source.groupPlanMeta : {};
+      normalized.personalPlans = source.personalPlans && typeof source.personalPlans === 'object' && !Array.isArray(source.personalPlans) ? source.personalPlans : {};
+      normalized.executionGroups = source.executionGroups && typeof source.executionGroups === 'object' && !Array.isArray(source.executionGroups) ? source.executionGroups : {};
+      normalized.trainingCompletion = source.trainingCompletion && typeof source.trainingCompletion === 'object' && !Array.isArray(source.trainingCompletion) ? source.trainingCompletion : {};
       for (var i = 0; i < normalized.athletes.length; i++) {
         var athlete = normalized.athletes[i];
         if (!athlete.strength || typeof athlete.strength !== 'object') athlete.strength = {};
         if (!Array.isArray(athlete.items)) athlete.items = [];
+        if (!Array.isArray(athlete.groups)) athlete.groups = [];
+        athlete.groups = athlete.groups.filter(function (gid) { return normalized.trainingGroups.some(function (g) { return g.id === gid; }); });
+        if (athlete.defaultGroupId && athlete.groups.indexOf(athlete.defaultGroupId) < 0) athlete.defaultGroupId = '';
         if (!Array.isArray(normalized.results[athlete.id])) normalized.results[athlete.id] = [];
         if (!Array.isArray(normalized.wellness[athlete.id])) normalized.wellness[athlete.id] = [];
       }
@@ -1287,12 +1296,23 @@
       var lbl = document.getElementById('themeLabel');
       if (lbl) lbl.textContent = th === 'dark' ? '深色模式' : '浅色模式';
     }
+    function isNewerVersion(candidate, current) {
+      var a = String(candidate || '').replace(/^v/i,'').split('.');
+      var b = String(current || '').replace(/^v/i,'').split('.');
+      var len = Math.max(a.length, b.length);
+      for (var i = 0; i < len; i++) {
+        var av = parseInt(a[i],10) || 0, bv = parseInt(b[i],10) || 0;
+        if (av > bv) return true;
+        if (av < bv) return false;
+      }
+      return false;
+    }
     function checkUpdate() {
       if (UPDATE_JSON.indexOf('你的用户名') >= 0) return;
       fetch(UPDATE_JSON + '?t=' + Date.now(), { cache:'no-store' })
         .then(function (r) { return r.json(); })
         .then(function (m) {
-          if (m && m.version && m.version !== APP_VERSION && m.html) {
+          if (m && m.version && isNewerVersion(m.version, APP_VERSION) && m.html) {
             var tried = null;
             try { tried = sessionStorage.getItem('cw_tried_version'); } catch (e) {}
             if (tried === m.version) return; /* 本会话已尝试更新到此版本，避免无限刷新 */
@@ -1315,7 +1335,7 @@
       } catch (e) {}
     }
 
-    var S = { tab:'overview', editId:null, sel:null, cell:null, q:'', monthPhase:'GP', cycleModel:'macro', planMode:'cscs', recItem:null, recFilter:'all', recEditId:null, recCustom:'', recDate:'', cmpMode:'hist', wellTrend:7, wellnessFilter:'all', athleteEventFilter:'all', athleteStatusFilter:'all', statusModeAid:null, teamListSession:null };
+    var S = { tab:'overview', editId:null, sel:null, cell:null, q:'', monthPhase:'GP', cycleModel:'macro', planMode:'cscs', recItem:null, recFilter:'all', recEditId:null, recCustom:'', recDate:'', cmpMode:'hist', wellTrend:7, wellnessFilter:'all', athleteEventFilter:'all', athleteStatusFilter:'all', statusModeAid:null, teamListSession:null, trainingMode:'group', trainingView:'week', trainingGroupId:null, trainingDate:null, trainingLegacyKind:null, personalEdit:null, athletePlanPreviewId:null };
 
     function esc(s) {
       return String(s == null ? '' : s).replace(/[&<>"']/g, function (m) {
@@ -1355,10 +1375,64 @@
       autoBackup('Coach Work-清除测试数据前自动备份');
       if (!confirm('仅删除标记为测试数据的 ' + ids.length + ' 名运动员，保留全部真实数据。是否继续？')) return;
       DB.athletes = DB.athletes.filter(function (a) { return !a.isTestData; });
-      for (var i = 0; i < ids.length; i++) { delete DB.results[ids[i]]; delete DB.wellness[ids[i]]; delete DB.month[ids[i]]; delete DB.cycle[ids[i]]; delete DB.cycleStart[ids[i]]; }
+      for (var i = 0; i < ids.length; i++) {
+        delete DB.results[ids[i]]; delete DB.wellness[ids[i]]; delete DB.month[ids[i]]; delete DB.cycle[ids[i]]; delete DB.cycleStart[ids[i]];
+        delete DB.personalPlans[ids[i]]; delete DB.executionGroups[ids[i]]; delete DB.trainingCompletion[ids[i]];
+      }
       if (ids.indexOf(S.sel) >= 0) S.sel = null;
       save(); renderSidebar(); renderView(); toast('测试数据已清除，真实数据已保留', 'success');
     }
+    function dateAdd(date, days) {
+      var d = new Date(String(date || todayStr()) + 'T00:00:00');
+      d.setDate(d.getDate() + days);
+      var p = function (x) { return String(x).padStart(2,'0'); };
+      return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate());
+    }
+    function mondayOf(date) {
+      var d = new Date(String(date || todayStr()) + 'T00:00:00');
+      var offset = (d.getDay() + 6) % 7;
+      return dateAdd(date || todayStr(), -offset);
+    }
+    function getTrainingGroup(gid) {
+      for (var i = 0; i < DB.trainingGroups.length; i++) if (DB.trainingGroups[i].id === gid) return DB.trainingGroups[i];
+      return null;
+    }
+    function getExecutionGroupId(aid, date) {
+      var athlete = getAthlete(aid);
+      if (!athlete) return '';
+      var dayMap = DB.executionGroups[aid] || {};
+      if (Object.prototype.hasOwnProperty.call(dayMap, date)) {
+        var explicit = dayMap[date];
+        return explicit && athlete.groups.indexOf(explicit) >= 0 && getTrainingGroup(explicit) ? explicit : '';
+      }
+      return athlete.defaultGroupId && athlete.groups.indexOf(athlete.defaultGroupId) >= 0 && getTrainingGroup(athlete.defaultGroupId) ? athlete.defaultGroupId : '';
+    }
+    function setExecutionGroup(aid, date, gid) {
+      if (!DB.executionGroups[aid]) DB.executionGroups[aid] = {};
+      if (gid === '__default__') delete DB.executionGroups[aid][date];
+      else DB.executionGroups[aid][date] = gid || '';
+      save();
+    }
+    function getGroupDayPlan(gid, date) {
+      return DB.groupPlans[gid] && DB.groupPlans[gid][date] ? DB.groupPlans[gid][date] : null;
+    }
+    function getPersonalDayPlan(aid, date) {
+      return DB.personalPlans[aid] && DB.personalPlans[aid][date] ? DB.personalPlans[aid][date] : null;
+    }
+    function getFinalTrainingPlan(aid, date) {
+      var athlete = getAthlete(aid), personal = getPersonalDayPlan(aid, date), gid = getExecutionGroupId(aid, date), group = getTrainingGroup(gid);
+      if (!athlete) return { type:'none', athleteId:aid, date:date, text:'', executionGroupId:'', visibleToAthlete:false, reason:'运动员不存在' };
+      if (personal) return { type:'personal', athleteId:aid, date:date, text:personal.text || '', reason:personal.reason || '', plan:personal, executionGroupId:gid, group:group, visibleToAthlete:!!group && group.planVisible !== false };
+      var groupPlan = gid ? getGroupDayPlan(gid, date) : null;
+      if (groupPlan) return { type:'group', athleteId:aid, date:date, text:groupPlan.text || '', plan:groupPlan, executionGroupId:gid, group:group, visibleToAthlete:!!group && group.planVisible !== false };
+      return { type:'none', athleteId:aid, date:date, text:'', executionGroupId:gid, group:group, visibleToAthlete:false, reason:gid ? '当天执行组暂无计划' : '当天执行组未指定' };
+    }
+    function hasLegacyPlan(aid, kind) {
+      var plan = (kind === 'month' ? DB.month : DB.cycle)[aid];
+      if (!plan || !Array.isArray(plan.rows)) return false;
+      return plan.rows.some(function (row) { return Array.isArray(row) && row.some(function (cell) { return cell && (String(cell.t || '').trim() || cell.done); }); });
+    }
+    var TRAINING_PHASES = ['一般准备期','专项准备期','赛前期','比赛期','过渡期'];
     var STRENGTH_ITEMS = ['深蹲','半蹲','高翻','卧推'];
     function isStrengthItem(item) { return STRENGTH_ITEMS.indexOf(item) >= 0; }
     /* 统一项目配置：已知项目自动识别；未知项目不猜单位和评价方向。 */
@@ -2569,8 +2643,7 @@
       { key:'athletes', label:'运动员', icon:'athletes', section:'daily' },
       { key:'wellness', label:'状态', icon:'wellness', section:'daily' },
       { key:'results',  label:'成绩', icon:'results', section:'daily' },
-      { key:'month',    label:'月计划', icon:'month', section:'training' },
-      { key:'cycle',    label:'周期计划', icon:'cycle', section:'training' },
+      { key:'training', label:'训练计划', icon:'month', section:'training' },
       { key:'analysis', label:'数据洞察', icon:'analysis', section:'professional' },
       { key:'compare',  label:'成绩对比', icon:'compare', section:'professional' },
       { key:'report',   label:'报告与导出', icon:'report', section:'professional' }
@@ -2581,8 +2654,7 @@
       wellness: { title:'状态 (Wellness)', sub:'每日状态监测与准备度分析' },
       results: { title:'成绩', sub:'训练成绩记录与分析' },
       compare: { title:'成绩对比', sub:'全队横向成绩比较与排名' },
-      month: { title:'月计划', sub:'月度训练计划编排' },
-      cycle: { title:'周期计划', sub:'周期化训练计划（CSCS / Level3）' },
+      training: { title:'训练计划', sub:'分组计划与个人调整' },
       analysis: { title:'数据洞察', sub:'趋势分析与表现信号' },
       report: { title:'报告', sub:'数据报告与导出' }
     };
@@ -3012,7 +3084,7 @@
       var focusSection =
         '<section class="card focusHero">' +
           '<div class="focusHeader"><div><div class="focusEyebrow">Today\'s Focus</div><div class="focusTitle">今日关注</div><div class="focusSummary">' + (needsAttentionCount ? '有 ' + needsAttentionCount + ' 名运动员出现需要复核的信号。' : '当前没有需要优先处理的变化。') + '</div></div>' +
-          '<div class="quickActions"><button class="btn btnPrimary btnSm" data-act="recQuickAdd">' + ico('plus') + ' 成绩</button><button class="btn btnSecondary btnSm" data-act="wellnessQuick">' + ico('heart') + ' 状态</button><button class="btn btnSecondary btnSm" data-act="tab" data-tab="month">' + ico('cal') + ' 训练</button></div></div>' +
+          '<div class="quickActions"><button class="btn btnPrimary btnSm" data-act="recQuickAdd">' + ico('plus') + ' 成绩</button><button class="btn btnSecondary btnSm" data-act="wellnessQuick">' + ico('heart') + ' 状态</button><button class="btn btnSecondary btnSm" data-act="tab" data-tab="training">' + ico('cal') + ' 训练</button></div></div>' +
           '<div class="focusList">' + focusHtml + '</div>' +
         '</section>';
 
@@ -3047,14 +3119,20 @@
           (performanceRows.length ? performanceRows.join('') : '<tr><td colspan="6"><div class="empty"><div class="emptyTitle">暂无可分析的主项成绩</div><div class="emptyDesc">每个项目至少需要 4 条有效成绩，才能生成变化信号。</div></div></td></tr>') +
         '</tbody></table></div></div>';
 
-      var monthStats = planStats(DB.month || {}), cycleStats = planStats(DB.cycle || {});
+      var groupDayCount = 0, personalPlanCount = 0, todayFinalCount = 0, todayCompleteCount = 0;
+      for (var gpid in DB.groupPlans) groupDayCount += Object.keys(DB.groupPlans[gpid] || {}).filter(function (date) { return String((DB.groupPlans[gpid][date] || {}).text || '').trim(); }).length;
+      for (var ppid in DB.personalPlans) personalPlanCount += Object.keys(DB.personalPlans[ppid] || {}).filter(function (date) { return String((DB.personalPlans[ppid][date] || {}).text || '').trim(); }).length;
+      for (var tai = 0; tai < athletes.length; tai++) {
+        if (getFinalTrainingPlan(athletes[tai].id, todayStr()).type !== 'none') todayFinalCount++;
+        if (DB.trainingCompletion[athletes[tai].id] && DB.trainingCompletion[athletes[tai].id][todayStr()]) todayCompleteCount++;
+      }
       var trainingSection =
-        '<div class="sectionHeading"><div><h2>训练执行</h2><p>来自教练已填写并标记完成的计划格</p></div><button class="btn btnGhost btnSm" data-act="tab" data-tab="month">打开训练计划</button></div>' +
+        '<div class="sectionHeading"><div><h2>训练执行</h2><p>组计划只编排一次，个人计划仅用于特殊调整</p></div><button class="btn btnGhost btnSm" data-act="tab" data-tab="training">打开训练计划</button></div>' +
         '<div class="teamStrip">' +
-          '<div class="teamMetric"><div class="teamMetricLabel">月计划已填写</div><div class="teamMetricValue">' + monthStats.total + '</div><div class="teamMetricMeta">计划格总数</div></div>' +
-          '<div class="teamMetric"><div class="teamMetricLabel">月计划已完成</div><div class="teamMetricValue">' + monthStats.done + '</div><div class="teamMetricMeta">完成率 ' + (monthStats.total ? monthStats.pct + '%' : '—') + '</div></div>' +
-          '<div class="teamMetric"><div class="teamMetricLabel">周期计划已填写</div><div class="teamMetricValue">' + cycleStats.total + '</div><div class="teamMetricMeta">计划格总数</div></div>' +
-          '<div class="teamMetric"><div class="teamMetricLabel">周期计划已完成</div><div class="teamMetricValue">' + cycleStats.done + '</div><div class="teamMetricMeta">完成率 ' + (cycleStats.total ? cycleStats.pct + '%' : '—') + '</div></div>' +
+          '<div class="teamMetric"><div class="teamMetricLabel">训练组</div><div class="teamMetricValue">' + DB.trainingGroups.length + '</div><div class="teamMetricMeta">统一编排</div></div>' +
+          '<div class="teamMetric"><div class="teamMetricLabel">组计划日期</div><div class="teamMetricValue">' + groupDayCount + '</div><div class="teamMetricMeta">同组成员共用</div></div>' +
+          '<div class="teamMetric"><div class="teamMetricLabel">今日有最终计划</div><div class="teamMetricValue">' + todayFinalCount + '</div><div class="teamMetricMeta">按执行组或个人覆盖</div></div>' +
+          '<div class="teamMetric"><div class="teamMetricLabel">个人调整</div><div class="teamMetricValue">' + personalPlanCount + '</div><div class="teamMetricMeta">特殊情况</div></div>' +
         '</div>';
 
       v.innerHTML = focusSection + teamSection + performanceSection + trainingSection + '<div class="dashFooter">系统整理信号与证据，最终训练判断由教练完成。</div>';
@@ -3203,13 +3281,19 @@
       /* 新建/编辑表单 */
       var formHtml = '';
       if (S.editId === 'new' || editing) {
-        var af = editing || { id:'new', name:'', height:'', weight:'', age:'', event:'', note:'', trainingYears:'',
+        var af = editing || { id:'new', name:'', height:'', weight:'', age:'', event:'', note:'', trainingYears:'', groups:[], defaultGroupId:'',
           strength:{ squat:'', halfSquat:'', clean:'', bench:'' }, items:DB.items.slice() };
         var itemChips = '';
         for (var i = 0; i < DB.items.length; i++) {
           var it = DB.items[i];
           var on = (af.items || []).indexOf(it) >= 0;
           itemChips += '<button type="button" class="chip' + (on ? ' on' : '') + '" data-act="itemToggle" data-i="' + i + '">' + esc(it) + '</button>';
+        }
+        var groupChips = '', defaultGroupOptions = '<option value="">未指定</option>';
+        for (var gi = 0; gi < DB.trainingGroups.length; gi++) {
+          var grp = DB.trainingGroups[gi], joined = (af.groups || []).indexOf(grp.id) >= 0;
+          groupChips += '<button type="button" class="chip' + (joined ? ' on' : '') + '" data-act="athleteGroupToggle" data-group="' + esc(grp.id) + '">' + esc(grp.name) + '</button>';
+          if (joined) defaultGroupOptions += '<option value="' + esc(grp.id) + '"' + (af.defaultGroupId === grp.id ? ' selected' : '') + '>' + esc(grp.name) + '</option>';
         }
         formHtml =
           '<div class="card"><div class="cardTitle"><span class="accentBar"></span>' + (editing ? '编辑运动员 · ' + esc(af.name) : '新建运动员') + '</div>' +
@@ -3228,6 +3312,8 @@
               '<div class="field"><label>高翻 (kg)</label><input class="inp" id="fClean" value="' + esc(af.strength.clean) + '" type="number" /></div>' +
               '<div class="field"><label>卧推 (kg)</label><input class="inp" id="fBench" value="' + esc(af.strength.bench) + '" type="number" /></div>' +
             '</div>' +
+            '<div class="mt12"><div class="hint mb8" style="font-weight:700">所属训练组（可多选）</div><div class="chipRow">' + (groupChips || '<span class="hint">请先在训练计划中创建训练组</span>') + '</div></div>' +
+            '<div class="field mt12" style="max-width:260px"><label>默认执行组</label><select class="inp" id="fDefaultGroup">' + defaultGroupOptions + '</select><span class="wellDef">用于日常跟组；当天需要换组时由教练单独指定。</span></div>' +
             '<div class="mt12"><div class="hint mb8" style="font-weight:700">训练内容（勾选该运动员练的项目，用于计划快速插入）</div><div class="chipRow">' + itemChips + '</div></div>' +
             '<div class="mt12 field"><label>备注</label><textarea class="inp" id="fNote" rows="2" placeholder="选填">' + esc(af.note || '') + '</textarea></div>' +
             '<div class="row mt12">' +
@@ -3823,7 +3909,150 @@
         '<tbody>' + rows + '</tbody></table></div></div>';
     }
 
-    /* ================= 渲染：训练计划（月/周期） ================= */
+    /* ================= 渲染：统一训练计划 ================= */
+    function trainingTabsHtml() {
+      return '<div class="card mb16"><div class="chipRow"><button class="chip' + (S.trainingMode === 'group' ? ' on' : '') + '" data-act="trainingMode" data-mode="group">分组计划</button><button class="chip' + (S.trainingMode === 'personal' ? ' on' : '') + '" data-act="trainingMode" data-mode="personal">个人计划</button></div></div>';
+    }
+    function ensureGroupMeta(gid) {
+      if (!DB.groupPlanMeta[gid]) DB.groupPlanMeta[gid] = { cycleWeeks:4, cycleStart:mondayOf(todayStr()), phases:[] };
+      var meta = DB.groupPlanMeta[gid];
+      meta.cycleWeeks = [2,4,8,12].indexOf(+meta.cycleWeeks) >= 0 ? +meta.cycleWeeks : 4;
+      if (!meta.cycleStart) meta.cycleStart = mondayOf(todayStr());
+      if (!Array.isArray(meta.phases)) meta.phases = [];
+      return meta;
+    }
+    function groupDayCell(gid, date, inScope) {
+      var plan = getGroupDayPlan(gid, date), text = plan && String(plan.text || '').trim();
+      if (!inScope) return '<td><div class="cell" style="opacity:.35;cursor:default"><span class="ph">' + date.slice(5) + '</span></div></td>';
+      return '<td><button class="cell" data-act="editGroupDay" data-group="' + esc(gid) + '" data-date="' + date + '"><div class="sub">' + date.slice(5) + '</div>' + (text ? '<div class="cellText">' + esc(text).replace(/\n/g,'<br>') + '</div>' : '<div class="ph">点击填写</div>') + '</button></td>';
+    }
+    function groupPlanGrid(gid, view, anchor) {
+      if (view === 'today') {
+        var plan = getGroupDayPlan(gid, anchor), text = plan && String(plan.text || '').trim();
+        return '<div class="card"><div class="cardHeader"><div><div class="title">今日 · ' + anchor + '</div><div class="subtitle">每日计划是最终执行数据的最小单位</div></div><button class="btn btnPrimary btnSm" data-act="editGroupDay" data-group="' + esc(gid) + '" data-date="' + anchor + '">' + ico('edit') + ' 编辑</button></div>' + (text ? '<div style="white-space:pre-wrap;line-height:1.8;color:var(--text-secondary)">' + esc(text) + '</div>' : '<div class="empty"><div class="emptyTitle">今日暂无组计划</div><div class="emptyDesc">点击编辑填写今天的真实执行计划</div></div>') + '</div>';
+      }
+      var start, weeks, month = null, meta = ensureGroupMeta(gid);
+      if (view === 'week') { start = mondayOf(anchor); weeks = 1; }
+      else if (view === 'month') { var first = anchor.slice(0,7) + '-01'; start = mondayOf(first); weeks = 6; month = anchor.slice(0,7); }
+      else { start = mondayOf(meta.cycleStart); weeks = meta.cycleWeeks; }
+      var heads = '<th style="min-width:100px">' + (view === 'cycle' ? '阶段' : '周次') + '</th>';
+      for (var h = 0; h < 7; h++) heads += '<th>' + DAYS[h] + '</th>';
+      var rows = '';
+      for (var w = 0; w < weeks; w++) {
+        var weekStart = dateAdd(start, w * 7), cells = '';
+        for (var day = 0; day < 7; day++) { var date = dateAdd(weekStart, day); cells += groupDayCell(gid, date, !month || date.slice(0,7) === month); }
+        var label = view === 'cycle' ? '<select class="inp" data-act="groupWeekPhase" data-group="' + esc(gid) + '" data-week="' + w + '" style="min-width:110px">' + TRAINING_PHASES.map(function (phase) { return '<option value="' + phase + '"' + ((meta.phases[w] || TRAINING_PHASES[0]) === phase ? ' selected' : '') + '>' + phase + '</option>'; }).join('') + '</select>' : '<span class="weekLbl">' + weekStart.slice(5) + '</span>';
+        rows += '<tr><td>' + label + '</td>' + cells + '</tr>';
+      }
+      return '<div class="card"><div class="tableWrap"><table class="tbl planTable"><thead><tr>' + heads + '</tr></thead><tbody>' + rows + '</tbody></table></div><div class="hint mt12">所有视图读取同一套按日期保存的每日计划；切换视图不会复制数据。</div></div>';
+    }
+    function renderGroupPlans() {
+      var v = document.getElementById('view');
+      if (!DB.trainingGroups.length) {
+        v.innerHTML = trainingTabsHtml() + '<div class="card"><div class="empty"><div class="emptyIcon">' + ico('athletes') + '</div><div class="emptyTitle">先创建训练组</div><div class="emptyDesc">组计划只需编排一次，同组运动员按默认或当天执行组使用。</div></div><div class="row"><input class="inp" id="newTrainingGroup" placeholder="如：短跑组 / 力量A组" style="flex:1" /><button class="btn btnPrimary" data-act="addTrainingGroup">' + ico('plus') + ' 创建训练组</button></div></div>';
+        return;
+      }
+      if (!getTrainingGroup(S.trainingGroupId)) S.trainingGroupId = DB.trainingGroups[0].id;
+      if (!S.trainingDate) S.trainingDate = todayStr();
+      var group = getTrainingGroup(S.trainingGroupId), meta = ensureGroupMeta(group.id), groupOptions = '';
+      for (var i = 0; i < DB.trainingGroups.length; i++) groupOptions += '<option value="' + esc(DB.trainingGroups[i].id) + '"' + (group.id === DB.trainingGroups[i].id ? ' selected' : '') + '>' + esc(DB.trainingGroups[i].name) + '</option>';
+      var viewChips = '';
+      [['today','今日'],['week','本周'],['month','本月'],['cycle','周期']].forEach(function (x) { viewChips += '<button class="chip' + (S.trainingView === x[0] ? ' on' : '') + '" data-act="trainingView" data-view="' + x[0] + '">' + x[1] + '</button>'; });
+      var members = DB.athletes.filter(function (a) { return (a.groups || []).indexOf(group.id) >= 0; });
+      var cycleControls = S.trainingView === 'cycle' ? '<span class="hint">周期：</span><select class="inp" data-act="groupCycleWeeks" style="width:90px"><option value="2"' + (meta.cycleWeeks===2?' selected':'') + '>2周</option><option value="4"' + (meta.cycleWeeks===4?' selected':'') + '>4周</option><option value="8"' + (meta.cycleWeeks===8?' selected':'') + '>8周</option><option value="12"' + (meta.cycleWeeks===12?' selected':'') + '>12周</option></select><input class="inp" type="date" data-act="groupCycleStart" value="' + esc(meta.cycleStart) + '" style="width:150px" />' : '';
+      v.innerHTML = trainingTabsHtml() +
+        '<div class="card mb16"><div class="cardHeader"><div><div class="title">分组计划</div><div class="subtitle">普通情况下运动员跟所属训练组训练</div></div><div class="row"><input class="inp" id="newTrainingGroup" placeholder="新训练组名称" style="width:150px" /><button class="btn btnGhost btnSm" data-act="addTrainingGroup">' + ico('plus') + ' 新建组</button></div></div>' +
+          '<div class="row"><div class="field" style="min-width:190px"><label>训练组</label><select class="inp" data-act="trainingGroup">' + groupOptions + '</select></div><div class="chipRow">' + viewChips + '</div><div class="grow"></div><div class="themeToggle" data-act="toggleGroupVisibility" style="cursor:pointer"><span>运动员计划显示：' + (group.planVisible !== false ? '显示' : '屏蔽') + '</span><span class="switch' + (group.planVisible !== false ? ' on' : '') + '"></span></div></div>' +
+          '<div class="row mt12"><div class="field"><label>查看日期</label><input class="inp" type="date" data-act="trainingDate" value="' + esc(S.trainingDate) + '" /></div>' + cycleControls + '<span class="grow"></span><span class="hint">组内 ' + members.length + ' 人</span><button class="btn btnSecondary btnSm" data-act="manageExecutionGroups" data-date="' + esc(S.trainingDate) + '">管理该日执行组</button></div>' +
+        '</div>' + groupPlanGrid(group.id, S.trainingView, S.trainingView === 'today' ? todayStr() : S.trainingDate);
+    }
+    function personalPlanEntries() {
+      var entries = [];
+      for (var aid in DB.personalPlans) for (var date in (DB.personalPlans[aid] || {})) {
+        var plan = DB.personalPlans[aid][date], athlete = getAthlete(aid);
+        if (athlete && plan && String(plan.text || '').trim()) entries.push({ athlete:athlete, date:date, plan:plan });
+      }
+      entries.sort(function (a,b) { return a.date === b.date ? a.athlete.name.localeCompare(b.athlete.name) : (a.date < b.date ? 1 : -1); });
+      return entries;
+    }
+    function capturePersonalDraft() {
+      if (!S.personalEdit) return;
+      var textEl = document.getElementById('personalPlanText'), reasonEl = document.getElementById('personalPlanReason');
+      if (textEl) S.personalEdit.text = textEl.value;
+      if (reasonEl) S.personalEdit.reason = reasonEl.value;
+    }
+    function personalPlanForm() {
+      var edit = S.personalEdit;
+      if (!edit) return '';
+      var athlete = getAthlete(edit.aid) || DB.athletes[0], athleteOptions = '';
+      for (var i = 0; i < DB.athletes.length; i++) athleteOptions += '<option value="' + esc(DB.athletes[i].id) + '"' + (athlete && athlete.id === DB.athletes[i].id ? ' selected' : '') + '>' + esc(DB.athletes[i].name) + '</option>';
+      if (!athlete) return '<div class="card mb16"><div class="empty"><div class="emptyTitle">请先添加运动员</div></div></div>';
+      edit.aid = athlete.id; edit.date = edit.date || todayStr();
+      var effectiveGid = edit.executionGroupId === undefined ? getExecutionGroupId(athlete.id, edit.date) : edit.executionGroupId;
+      var groupOptions = '<option value="">当天执行组未指定</option>';
+      for (var g = 0; g < athlete.groups.length; g++) { var group = getTrainingGroup(athlete.groups[g]); if (group) groupOptions += '<option value="' + esc(group.id) + '"' + (effectiveGid === group.id ? ' selected' : '') + '>' + esc(group.name) + '</option>'; }
+      var groupPlan = effectiveGid ? getGroupDayPlan(effectiveGid, edit.date) : null, groupObj = getTrainingGroup(effectiveGid);
+      return '<div class="card mb16"><div class="cardHeader"><div><div class="title">' + (edit.id ? '编辑个人计划' : '创建个人计划') + '</div><div class="subtitle">个人计划完全替代当天组计划，保存后独立存在</div></div></div>' +
+        '<div class="formGrid"><div class="field"><label>运动员</label><select class="inp" data-act="personalAthlete">' + athleteOptions + '</select></div><div class="field"><label>日期</label><input class="inp" type="date" data-act="personalDate" value="' + esc(edit.date) + '" /></div><div class="field"><label>当天执行组</label><select class="inp" data-act="personalExecutionGroup">' + groupOptions + '</select></div></div>' +
+        '<div class="card mt12" style="padding:12px"><div class="hint">原执行组：' + esc(groupObj ? groupObj.name : '未指定') + '</div><div class="sub mt8" style="white-space:pre-wrap">原组计划：' + esc(groupPlan && groupPlan.text ? groupPlan.text : '暂无') + '</div></div>' +
+        '<div class="field mt12"><label>个人计划</label><textarea class="inp" id="personalPlanText" rows="5" placeholder="如：恢复跑15分钟&#10;技术练习&#10;拉伸">' + esc(edit.text || '') + '</textarea></div><div class="field mt12"><label>调整原因（选填）</label><input class="inp" id="personalPlanReason" value="' + esc(edit.reason || '') + '" placeholder="如：伤病恢复 / 赛前调整" /></div>' +
+        '<div class="row mt12"><button class="btn btnGhost" data-act="cancelPersonalPlan">取消</button><button class="btn btnPrimary" data-act="savePersonalPlan">' + ico('check') + ' 保存个人计划</button></div></div>';
+    }
+    function athletePreviewCard() {
+      if (!DB.athletes.length) return '';
+      if (!getAthlete(S.athletePlanPreviewId)) S.athletePlanPreviewId = DB.athletes[0].id;
+      var options = '';
+      for (var i = 0; i < DB.athletes.length; i++) options += '<option value="' + esc(DB.athletes[i].id) + '"' + (S.athletePlanPreviewId === DB.athletes[i].id ? ' selected' : '') + '>' + esc(DB.athletes[i].name) + '</option>';
+      var final = getFinalTrainingPlan(S.athletePlanPreviewId, todayStr()), groupName = final.group ? final.group.name : '未指定';
+      var athleteBody = !final.visibleToAthlete ? (final.executionGroupId ? '今日训练计划暂未开放' : '今日暂无最终训练计划') : final.type === 'none' ? '今日暂无最终训练计划' : esc(final.text).replace(/\n/g,'<br>');
+      var completion = DB.trainingCompletion[S.athletePlanPreviewId] && DB.trainingCompletion[S.athletePlanPreviewId][todayStr()];
+      var ref = final.plan && final.plan.id;
+      var completed = !!completion && completion.planId === ref && completion.planUpdatedAt === (final.plan && final.plan.updatedAt || '') && completion.completed;
+      return '<div class="card mt16"><div class="cardHeader"><div><div class="title">Athlete View Preview</div><div class="subtitle">仅预览该运动员今天的最终计划；当前没有真实运动员账号</div></div><select class="inp" data-act="athletePlanPreview" style="width:150px">' + options + '</select></div><div class="hint">今日执行组：' + esc(groupName) + ' · 来源：' + (final.type === 'personal' ? '个人计划' : final.type === 'group' ? '组计划' : '无') + '</div><div class="card mt12" style="padding:16px;line-height:1.8">' + athleteBody + '</div>' + (final.type !== 'none' ? '<div class="row mt12"><span class="hint">完成状态由教练记录：</span><button class="btn btnSecondary btnSm" data-act="toggleTrainingCompletion" data-id="' + esc(S.athletePlanPreviewId) + '">' + (completed ? '已完成 ✓' : '标记完成') + '</button></div>' : '') + '</div>';
+    }
+    function renderPersonalPlans() {
+      var v = document.getElementById('view'), entries = personalPlanEntries(), rows = '';
+      for (var i = 0; i < entries.length; i++) {
+        var e = entries[i];
+        rows += '<tr><td><b>' + esc(e.athlete.name) + '</b></td><td>' + e.date + '</td><td>' + esc(e.plan.reason || '个人调整') + '</td><td><span class="badge normal plainDot">完全覆盖组计划</span></td><td><span class="rowActs"><button class="rowIconBtn" data-act="editPersonalPlan" data-id="' + esc(e.athlete.id) + '" data-date="' + e.date + '" title="编辑">' + ico('edit') + '</button><button class="rowIconBtn danger" data-act="deletePersonalPlan" data-id="' + esc(e.athlete.id) + '" data-date="' + e.date + '" title="删除">' + ico('trash') + '</button></span></td></tr>';
+      }
+      var legacy = '';
+      for (var a = 0; a < DB.athletes.length; a++) {
+        var athlete = DB.athletes[a], hasM = hasLegacyPlan(athlete.id,'month'), hasC = hasLegacyPlan(athlete.id,'cycle');
+        if (hasM || hasC) legacy += '<div class="row" style="padding:8px 0;border-bottom:1px solid var(--border)"><b>' + esc(athlete.name) + '</b><span class="grow"></span>' + (hasM ? '<button class="btn btnGhost btnSm" data-act="viewLegacyPlan" data-id="' + esc(athlete.id) + '" data-kind="month">旧月计划</button>' : '') + (hasC ? '<button class="btn btnGhost btnSm" data-act="viewLegacyPlan" data-id="' + esc(athlete.id) + '" data-kind="cycle">旧周期计划</button>' : '') + '</div>';
+      }
+      v.innerHTML = trainingTabsHtml() + '<div class="flexBetween mb12"><div><h2 style="margin:0">个人调整</h2><p class="hint">只列出当前真正存在个人计划的特殊运动员</p></div><button class="btn btnPrimary" data-act="newPersonalPlan">' + ico('plus') + ' 创建个人计划</button></div>' + personalPlanForm() +
+        '<div class="card"><div class="cardHeader"><div><div class="title">当前个人计划</div><div class="subtitle">共 ' + entries.length + ' 条，不平铺全部运动员</div></div></div><div class="tableWrap" style="border:0"><table class="tbl"><thead><tr><th>运动员</th><th>日期</th><th>调整原因</th><th>规则</th><th></th></tr></thead><tbody>' + (rows || '<tr><td colspan="5"><div class="empty"><div class="emptyTitle">当前没有个人调整</div><div class="emptyDesc">普通运动员默认跟随当天执行组计划</div></div></td></tr>') + '</tbody></table></div></div>' + athletePreviewCard() + (legacy ? '<div class="card mt16"><div class="cardHeader"><div><div class="title">历史个人计划</div><div class="subtitle">旧月计划与周期计划原样保留，不自动转换为组计划</div></div></div>' + legacy + '</div>' : '');
+    }
+    function renderTrainingPlan() {
+      if (S.trainingLegacyKind) {
+        renderPlanTable(S.trainingLegacyKind);
+        document.getElementById('view').insertAdjacentHTML('afterbegin','<div class="card mb16"><button class="btn btnGhost btnSm" data-act="backFromLegacyPlan">' + ico('x') + ' 返回个人计划</button><span class="hint" style="margin-left:10px">历史数据兼容视图，不会自动转为组计划</span></div>');
+        return;
+      }
+      if (S.trainingMode === 'personal') renderPersonalPlans(); else renderGroupPlans();
+    }
+    function openGroupDayEditor(gid, date) {
+      var group = getTrainingGroup(gid), plan = getGroupDayPlan(gid,date), ov = document.getElementById('overlay');
+      if (!group) return;
+      ov.innerHTML = '<div class="modal"><div class="modalTitle">' + esc(group.name) + ' · ' + date + '</div><div class="modalSub">编辑这一天的真实组计划；今日、周、月、周期视图会读取同一条数据。</div><textarea class="inp" id="groupDayText" rows="7" placeholder="如：起跑技术&#10;30m × 4&#10;60m × 3&#10;核心训练">' + esc(plan && plan.text || '') + '</textarea><div class="modalFooter"><button class="btn btnGhost btnSm" data-act="cancelGroupDay">取消</button><button class="btn btnGhost btnSm" data-act="clearGroupDay" data-group="' + esc(gid) + '" data-date="' + date + '">' + ico('trash') + ' 清空</button><button class="btn btnPrimary btnSm" data-act="saveGroupDay" data-group="' + esc(gid) + '" data-date="' + date + '">' + ico('check') + ' 保存</button></div></div>';
+      ov.classList.remove('hide');
+    }
+    function openExecutionGroupManager(date) {
+      var rows = '';
+      for (var i = 0; i < DB.athletes.length; i++) {
+        var athlete = DB.athletes[i], dayMap = DB.executionGroups[athlete.id] || {}, explicit = Object.prototype.hasOwnProperty.call(dayMap,date), current = explicit ? dayMap[date] : '__default__';
+        var options = '<option value="__default__"' + (current === '__default__' ? ' selected' : '') + '>使用默认：' + esc(getTrainingGroup(athlete.defaultGroupId) ? getTrainingGroup(athlete.defaultGroupId).name : '未指定') + '</option><option value=""' + (current === '' ? ' selected' : '') + '>当天未指定</option>';
+        for (var g = 0; g < athlete.groups.length; g++) { var group = getTrainingGroup(athlete.groups[g]); if (group) options += '<option value="' + esc(group.id) + '"' + (current === group.id ? ' selected' : '') + '>' + esc(group.name) + '</option>'; }
+        rows += '<tr data-team-name="' + esc(athlete.name + ' ' + (athlete.event || '')) + '"><td><b>' + esc(athlete.name) + '</b><div class="sub">' + esc(athlete.event || '—') + '</div></td><td><select class="inp" data-act="executionGroupSelect" data-id="' + esc(athlete.id) + '" data-date="' + date + '">' + options + '</select></td></tr>';
+      }
+      S.teamListSession = { type:'execution' };
+      document.getElementById('drawerTitle').textContent = '今日执行组'; document.getElementById('drawerSub').textContent = date + ' · 默认跟组，仅为例外运动员调整';
+      document.getElementById('drawerBody').innerHTML = '<div class="field mb8"><input class="inp" data-act="drawerAthleteSearch" placeholder="搜索运动员" /></div><div class="tableWrap" style="border:0"><table class="tbl"><thead><tr><th>运动员</th><th>执行组</th></tr></thead><tbody>' + (rows || '<tr><td colspan="2"><div class="drawerEmpty">暂无运动员</div></td></tr>') + '</tbody></table></div>';
+      document.getElementById('statusDrawer').classList.add('show'); document.getElementById('drawerMask').classList.add('show');
+    }
+
+    /* ================= 旧训练计划兼容视图（月/周期） ================= */
     function renderPlanTable(kind) {
       var v = document.getElementById('view');
       ensureSel();
@@ -4319,6 +4548,70 @@
         clearTestData();
       } else if (act === 'athleteStatusFilter') {
         S.athleteStatusFilter = el.getAttribute('data-filter') || 'all'; renderView();
+      } else if (act === 'trainingMode') {
+        S.trainingMode = el.getAttribute('data-mode') || 'group'; S.trainingLegacyKind = null; renderView();
+      } else if (act === 'trainingView') {
+        S.trainingView = el.getAttribute('data-view') || 'week'; renderView();
+      } else if (act === 'addTrainingGroup') {
+        var groupInp = document.getElementById('newTrainingGroup'), groupName = groupInp ? groupInp.value.trim() : '';
+        if (!groupName) { toast('请输入训练组名称', 'error'); return; }
+        if (DB.trainingGroups.some(function (g) { return g.name === groupName; })) { toast('训练组名称已存在', 'error'); return; }
+        var newGroup = { id:'grp-' + uid(), name:groupName, planVisible:true };
+        DB.trainingGroups.push(newGroup); DB.groupPlans[newGroup.id] = {}; ensureGroupMeta(newGroup.id); S.trainingGroupId = newGroup.id;
+        save(); renderView(); toast('训练组已创建', 'success');
+      } else if (act === 'toggleGroupVisibility') {
+        var visibleGroup = getTrainingGroup(S.trainingGroupId);
+        if (visibleGroup) { visibleGroup.planVisible = visibleGroup.planVisible === false; save(); renderView(); toast(visibleGroup.planVisible ? '已向运动员显示今日计划' : '已持续屏蔽该组运动员计划', 'success'); }
+      } else if (act === 'manageExecutionGroups') {
+        openExecutionGroupManager(el.getAttribute('data-date') || todayStr());
+      } else if (act === 'editGroupDay') {
+        openGroupDayEditor(el.getAttribute('data-group'), el.getAttribute('data-date'));
+      } else if (act === 'cancelGroupDay') {
+        closeCell();
+      } else if (act === 'clearGroupDay') {
+        var clearGid = el.getAttribute('data-group'), clearDate = el.getAttribute('data-date');
+        if (DB.groupPlans[clearGid]) delete DB.groupPlans[clearGid][clearDate];
+        save(); closeCell(); renderView(); toast('该日组计划已清空', 'success');
+      } else if (act === 'saveGroupDay') {
+        var saveGid = el.getAttribute('data-group'), saveDate = el.getAttribute('data-date'), groupText = document.getElementById('groupDayText').value.trim();
+        if (!DB.groupPlans[saveGid]) DB.groupPlans[saveGid] = {};
+        var oldGroupPlan = DB.groupPlans[saveGid][saveDate];
+        if (groupText) DB.groupPlans[saveGid][saveDate] = { id:oldGroupPlan && oldGroupPlan.id || uid(), text:groupText, updatedAt:new Date().toISOString() };
+        else delete DB.groupPlans[saveGid][saveDate];
+        save(); closeCell(); renderView(); toast('组计划已保存', 'success');
+      } else if (act === 'newPersonalPlan') {
+        if (!DB.athletes.length) { toast('请先添加运动员', 'error'); return; }
+        S.personalEdit = { aid:S.athletePlanPreviewId || DB.athletes[0].id, date:todayStr(), text:'', reason:'' }; renderView();
+      } else if (act === 'cancelPersonalPlan') {
+        S.personalEdit = null; renderView();
+      } else if (act === 'editPersonalPlan') {
+        var editAid = el.getAttribute('data-id'), editDate = el.getAttribute('data-date'), editPlan = getPersonalDayPlan(editAid, editDate);
+        if (editPlan) { S.personalEdit = { id:editPlan.id, aid:editAid, date:editDate, originAid:editAid, originDate:editDate, executionGroupId:getExecutionGroupId(editAid,editDate), text:editPlan.text || '', reason:editPlan.reason || '' }; renderView(); }
+      } else if (act === 'savePersonalPlan') {
+        var pe = S.personalEdit;
+        if (!pe || !getAthlete(pe.aid)) return;
+        var personalText = document.getElementById('personalPlanText').value.trim(), personalReason = document.getElementById('personalPlanReason').value.trim();
+        if (!personalText) { toast('请填写个人计划内容', 'error'); return; }
+        if (pe.originAid && (pe.originAid !== pe.aid || pe.originDate !== pe.date) && DB.personalPlans[pe.originAid]) delete DB.personalPlans[pe.originAid][pe.originDate];
+        if (!DB.personalPlans[pe.aid]) DB.personalPlans[pe.aid] = {};
+        var oldPersonal = DB.personalPlans[pe.aid][pe.date];
+        DB.personalPlans[pe.aid][pe.date] = { id:pe.id || oldPersonal && oldPersonal.id || uid(), text:personalText, reason:personalReason, createdAt:oldPersonal && oldPersonal.createdAt || new Date().toISOString(), updatedAt:new Date().toISOString() };
+        if (pe.executionGroupId !== undefined) setExecutionGroup(pe.aid, pe.date, pe.executionGroupId || '');
+        S.personalEdit = null; save(); renderView(); toast('个人计划已保存，并完全覆盖当天组计划', 'success');
+      } else if (act === 'deletePersonalPlan') {
+        var deleteAid = el.getAttribute('data-id'), deleteDate = el.getAttribute('data-date');
+        if (confirm('删除这条个人计划？删除后将重新使用当天执行组计划。')) { if (DB.personalPlans[deleteAid]) delete DB.personalPlans[deleteAid][deleteDate]; save(); renderView(); }
+      } else if (act === 'viewLegacyPlan') {
+        S.sel = el.getAttribute('data-id'); S.trainingLegacyKind = el.getAttribute('data-kind'); renderView();
+      } else if (act === 'backFromLegacyPlan') {
+        S.trainingLegacyKind = null; S.trainingMode = 'personal'; renderView();
+      } else if (act === 'toggleTrainingCompletion') {
+        var completeAid = el.getAttribute('data-id'), finalPlan = getFinalTrainingPlan(completeAid,todayStr());
+        if (finalPlan.type === 'none' || !finalPlan.plan) return;
+        if (!DB.trainingCompletion[completeAid]) DB.trainingCompletion[completeAid] = {};
+        var oldCompletion = DB.trainingCompletion[completeAid][todayStr()], nextCompleted = !(oldCompletion && oldCompletion.planId === finalPlan.plan.id && oldCompletion.completed);
+        DB.trainingCompletion[completeAid][todayStr()] = { completed:nextCompleted, date:todayStr(), athleteId:completeAid, planType:finalPlan.type, planId:finalPlan.plan.id, planUpdatedAt:finalPlan.plan.updatedAt || '', executionGroupId:finalPlan.executionGroupId || '', updatedAt:new Date().toISOString(), recordedBy:AuthService.getCurrentUser().id };
+        save(); renderView();
       } else if (act === 'athleteStatusDetail') {
         openAthleteStatusDetail(el.getAttribute('data-id'));
       } else if (act === 'closeDrawer') {
@@ -4448,7 +4741,7 @@
         S.sel = el.getAttribute('data-id');
         renderView();
       } else if (act === 'planFor') {
-        S.sel = el.getAttribute('data-id'); S.tab = 'month'; renderSidebar(); renderView();
+        S.sel = el.getAttribute('data-id'); S.athletePlanPreviewId = S.sel; S.trainingMode = 'personal'; S.tab = 'training'; renderSidebar(); renderView();
       } else if (act === 'gotoResults') {
         S.sel = el.getAttribute('data-id');
         var targetItem = el.getAttribute('data-item');
@@ -4490,6 +4783,11 @@
         rec.strength.clean = document.getElementById('fClean').value.trim();
         rec.strength.bench = document.getElementById('fBench').value.trim();
         rec.note = document.getElementById('fNote').value.trim();
+        rec.groups = [];
+        var groupButtons = document.querySelectorAll('#view [data-act="athleteGroupToggle"].on');
+        for (var gbi = 0; gbi < groupButtons.length; gbi++) rec.groups.push(groupButtons[gbi].getAttribute('data-group'));
+        var defaultGroupEl = document.getElementById('fDefaultGroup');
+        rec.defaultGroupId = defaultGroupEl && rec.groups.indexOf(defaultGroupEl.value) >= 0 ? defaultGroupEl.value : '';
         rec.items = [];
         var ch = document.querySelectorAll('#view .chipRow [data-act="itemToggle"].on');
         for (var i = 0; i < ch.length; i++) rec.items.push(DB.items[+ch[i].getAttribute('data-i')]);
@@ -4499,6 +4797,17 @@
         toast(isNew ? '运动员已添加' : '运动员档案已更新', 'success');
       } else if (act === 'itemToggle') {
         el.classList.toggle('on');
+      } else if (act === 'athleteGroupToggle') {
+        el.classList.toggle('on');
+        var defaultSel = document.getElementById('fDefaultGroup'), previous = defaultSel ? defaultSel.value : '';
+        if (defaultSel) {
+          var options = '<option value="">未指定</option>', activeGroups = document.querySelectorAll('#view [data-act="athleteGroupToggle"].on');
+          for (var agi = 0; agi < activeGroups.length; agi++) {
+            var gid = activeGroups[agi].getAttribute('data-group'), group = getTrainingGroup(gid);
+            if (group) options += '<option value="' + esc(gid) + '"' + (previous === gid ? ' selected' : '') + '>' + esc(group.name) + '</option>';
+          }
+          defaultSel.innerHTML = options;
+        }
       } else if (act === 'editCell') {
         openCell(el.getAttribute('data-kind'), +el.getAttribute('data-w'), +el.getAttribute('data-d'));
       } else if (act === 'chipIns') {
@@ -4658,6 +4967,35 @@
         renderView();
       } else if (el.getAttribute('data-act') === 'athleteEventFilter') {
         S.athleteEventFilter = el.value || 'all'; renderView();
+      } else if (el.getAttribute('data-act') === 'trainingGroup') {
+        S.trainingGroupId = el.value; renderView();
+      } else if (el.getAttribute('data-act') === 'trainingDate') {
+        S.trainingDate = el.value || todayStr(); renderView();
+      } else if (el.getAttribute('data-act') === 'groupCycleWeeks') {
+        var cycleMeta = ensureGroupMeta(S.trainingGroupId), allowedWeeks = [2,4,8,12], selectedWeeks = parseInt(el.value,10);
+        cycleMeta.cycleWeeks = allowedWeeks.indexOf(selectedWeeks) >= 0 ? selectedWeeks : 4;
+        save(); renderView();
+      } else if (el.getAttribute('data-act') === 'groupCycleStart') {
+        ensureGroupMeta(S.trainingGroupId).cycleStart = el.value || mondayOf(todayStr());
+        save(); renderView();
+      } else if (el.getAttribute('data-act') === 'groupWeekPhase') {
+        var phaseMeta = ensureGroupMeta(el.getAttribute('data-group')), phaseWeek = +el.getAttribute('data-week');
+        phaseMeta.phases[phaseWeek] = TRAINING_PHASES.indexOf(el.value) >= 0 ? el.value : TRAINING_PHASES[0];
+        save();
+      } else if (el.getAttribute('data-act') === 'personalAthlete') {
+        if (!S.personalEdit) return;
+        capturePersonalDraft(); S.personalEdit.aid = el.value; S.personalEdit.executionGroupId = undefined; renderView();
+      } else if (el.getAttribute('data-act') === 'personalDate') {
+        if (!S.personalEdit) return;
+        capturePersonalDraft(); S.personalEdit.date = el.value || todayStr(); S.personalEdit.executionGroupId = undefined; renderView();
+      } else if (el.getAttribute('data-act') === 'personalExecutionGroup') {
+        if (!S.personalEdit) return;
+        capturePersonalDraft(); S.personalEdit.executionGroupId = el.value; renderView();
+      } else if (el.getAttribute('data-act') === 'athletePlanPreview') {
+        S.athletePlanPreviewId = el.value; renderView();
+      } else if (el.getAttribute('data-act') === 'executionGroupSelect') {
+        setExecutionGroup(el.getAttribute('data-id'), el.getAttribute('data-date'), el.value);
+        toast('当天执行组已更新', 'success');
       } else if (el.id === 'recCustom') {
         S.recCustom = el.value.trim(); renderView();
       } else if (el.getAttribute('data-act') === 'cycleWeeks') {
@@ -4710,6 +5048,7 @@
       else if (S.tab === 'wellness') renderWellness();
       else if (S.tab === 'results') renderResults();
       else if (S.tab === 'compare') renderCompare();
+      else if (S.tab === 'training') renderTrainingPlan();
       else if (S.tab === 'month') renderPlanTable('month');
       else if (S.tab === 'cycle') renderPlanTable('cycle');
       else if (S.tab === 'analysis') renderAnalysis();
@@ -4736,12 +5075,17 @@
     window.__cwTest = {
       getRiskGroups:getRiskGroups,
       getTodayWellnessStatus:getTodayWellnessStatus,
+      getFinalTrainingPlan:getFinalTrainingPlan,
+      getExecutionGroupId:getExecutionGroupId,
+      getGroupDayPlan:getGroupDayPlan,
+      isNewerVersion:isNewerVersion,
+      personalPlanEntries:personalPlanEntries,
       categories:function () { return DB.athletes.map(function (a) { return classifyWellness(a).category; }); },
       getEventConfig:getEventConfig,
-      state:function () { return { sel:S.sel, recItem:S.recItem, recFilter:S.recFilter }; },
+      state:function () { return { sel:S.sel, recItem:S.recItem, recFilter:S.recFilter, tab:S.tab, trainingMode:S.trainingMode, trainingView:S.trainingView, trainingGroupId:S.trainingGroupId, trainingDate:S.trainingDate }; },
       generateTestData30:generateTestData30,
       clearTestData:clearTestData,
-      summary:function () { return { total:DB.athletes.length, test:DB.athletes.filter(function (a) { return a.isTestData; }).length, names:DB.athletes.map(function (a) { return a.name; }), eventConfigs:DB.eventConfigs, results:DB.results, wellness:DB.wellness }; }
+      summary:function () { return { total:DB.athletes.length, test:DB.athletes.filter(function (a) { return a.isTestData; }).length, names:DB.athletes.map(function (a) { return a.name; }), eventConfigs:DB.eventConfigs, results:DB.results, wellness:DB.wellness, athletes:DB.athletes, trainingGroups:DB.trainingGroups, groupPlans:DB.groupPlans, groupPlanMeta:DB.groupPlanMeta, personalPlans:DB.personalPlans, executionGroups:DB.executionGroups, trainingCompletion:DB.trainingCompletion, month:DB.month, cycle:DB.cycle }; }
     };
     checkUpdate();
   })();
