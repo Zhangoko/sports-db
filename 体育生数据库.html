@@ -1122,7 +1122,7 @@
     'use strict';
     /* ================= 常量 / 状态 ================= */
     var LS_KEY = 'sportsdb_v1';
-    var APP_VERSION = '3.0.0';
+    var APP_VERSION = '3.0.1';
     var UPDATE_JSON = 'https://zhangoko.github.io/sports-db/version.json';
     var DAYS = ['周一','周二','周三','周四','周五','周六','周日'];
     var DEF_ITEMS = ['30米','60米','100米','110米','150米','200米','300米'];
@@ -2569,7 +2569,6 @@
       { key:'athletes', label:'运动员', icon:'athletes', section:'daily' },
       { key:'wellness', label:'状态', icon:'wellness', section:'daily' },
       { key:'results',  label:'成绩', icon:'results', section:'daily' },
-      { key:'items',    label:'训练内容', icon:'items', section:'training' },
       { key:'month',    label:'月计划', icon:'month', section:'training' },
       { key:'cycle',    label:'周期计划', icon:'cycle', section:'training' },
       { key:'analysis', label:'数据洞察', icon:'analysis', section:'professional' },
@@ -2582,7 +2581,6 @@
       wellness: { title:'状态 (Wellness)', sub:'每日状态监测与准备度分析' },
       results: { title:'成绩', sub:'训练成绩记录与分析' },
       compare: { title:'成绩对比', sub:'全队横向成绩比较与排名' },
-      items: { title:'训练内容', sub:'训练项目与内容管理' },
       month: { title:'月计划', sub:'月度训练计划编排' },
       cycle: { title:'周期计划', sub:'周期化训练计划（CSCS / Level3）' },
       analysis: { title:'数据洞察', sub:'趋势分析与表现信号' },
@@ -3298,26 +3296,6 @@
           '<thead><tr><th>运动员</th><th>主项</th><th class="textRight">年龄</th><th class="textRight">主项最近</th><th class="textRight">主项 PB</th><th class="textRight">准备度</th><th class="textRight">疲劳</th><th>今日状态</th><th></th></tr></thead>' +
           '<tbody>' + rows + '</tbody>' +
         '</table></div>';
-    }
-
-    /* ================= 渲染：训练内容 ================= */
-    function renderItems() {
-      var v = document.getElementById('view');
-      var chips = '';
-      for (var i = 0; i < DB.items.length; i++) {
-        chips += '<span class="chip" style="cursor:default">' + esc(DB.items[i]) +
-          '<button class="x" data-act="delItem" data-i="' + i + '" title="删除">' + ico('x') + '</button></span>';
-      }
-      v.innerHTML =
-        '<div class="card"><div class="cardHeader"><div><div class="title">训练内容项目</div><div class="subtitle">共 ' + DB.items.length + ' 个项目，用于成绩记录和计划快速插入</div></div></div>' +
-          '<div class="row">' +
-            '<input class="inp" id="newItem" placeholder="如：400米 / 跳深 / 药球 / 栏架 / 1500米，回车或点添加" style="flex:1;min-width:200px" />' +
-            '<button class="btn btnPrimary" data-act="addItem">' + ico('plus') + ' 添加</button>' +
-          '</div>' +
-          '<div class="chipRow mt12">' + (chips || '<span class="hint">暂无项目</span>') + '</div>' +
-          '<div class="hint mt12">这些项目会出现在月计划/周期计划的"快速插入"里；运动员档案里也可以勾选各自的项目。新训练内容随时在这里添加。</div>' +
-        '</div>' +
-        '';
     }
 
     /* ================= 渲染：成绩 ================= */
@@ -4521,20 +4499,6 @@
         toast(isNew ? '运动员已添加' : '运动员档案已更新', 'success');
       } else if (act === 'itemToggle') {
         el.classList.toggle('on');
-      } else if (act === 'addItem') {
-        var inp = document.getElementById('newItem');
-        var val = inp.value.trim();
-        if (!val) return;
-        if (DB.items.indexOf(val) < 0) DB.items.push(val);
-        save(); renderSidebar(); renderView();
-        toast('训练项目已添加', 'success');
-      } else if (act === 'delItem') {
-        var idx = +el.getAttribute('data-i');
-        if (confirm('删除训练内容「' + DB.items[idx] + '」？')) {
-          DB.items.splice(idx, 1);
-          save(); renderSidebar(); renderView();
-          toast('训练项目已删除', 'success');
-        }
       } else if (act === 'editCell') {
         openCell(el.getAttribute('data-kind'), +el.getAttribute('data-w'), +el.getAttribute('data-d'));
       } else if (act === 'chipIns') {
@@ -4663,10 +4627,6 @@
       if (t && t.id === 'gsearch') { e.preventDefault(); S.tab = 'athletes'; S.editId = null; S.sel = null; renderSidebar(); renderView(); }
       else if (t && t.id === 'recTime') { e.preventDefault(); doRecSave(); }
       else if (t && t.id === 'ceText' && !e.shiftKey) { e.preventDefault(); doCellSave(); }
-      else if (t && t.id === 'newItem') { e.preventDefault();
-        var val = t.value.trim();
-        if (val && DB.items.indexOf(val) < 0) { DB.items.push(val); save(); renderSidebar(); renderView(); toast('训练项目已添加', 'success'); }
-      }
     });
 
     document.addEventListener('change', function (e) {
@@ -4750,7 +4710,6 @@
       else if (S.tab === 'wellness') renderWellness();
       else if (S.tab === 'results') renderResults();
       else if (S.tab === 'compare') renderCompare();
-      else if (S.tab === 'items') renderItems();
       else if (S.tab === 'month') renderPlanTable('month');
       else if (S.tab === 'cycle') renderPlanTable('cycle');
       else if (S.tab === 'analysis') renderAnalysis();
